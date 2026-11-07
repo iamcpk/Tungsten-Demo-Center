@@ -9,7 +9,7 @@ test('cleanText strips markup but keeps characters as plain text', () => {
   assert.equal(cleanText('Customer Onboarding & Account Opening'), 'Customer Onboarding & Account Opening');
   assert.equal(cleanText('Demo Commerciële Lening'), 'Demo Commerciële Lening');
   assert.equal(cleanText('<b>Bold</b> &amp; <script>alert(1)</script>safe'), 'Bold & safe');
-  assert.equal(cleanText('Tom &quot;TJ&quot; O&#39;Neil &#x2014; &copy;'), 'Tom "TJ" O\'Neil — &copy;');
+  assert.equal(cleanText('Tom &quot;TJ&quot; O&#39;Neil &#x2014; &copy;'), 'Tom "TJ" O\'Neil — ©');
   assert.equal(cleanText('abcdef', 3), 'abc');
 });
 
