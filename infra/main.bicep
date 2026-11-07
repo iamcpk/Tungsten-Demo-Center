@@ -48,6 +48,9 @@ param adminAllowedIpRanges array = []
 @allowed(['Europe', 'UK', 'United States'])
 param emailDataLocation string = 'Europe'
 
+@description('Region for Cosmos DB. Defaults to the resource group region. Set another region (for example northeurope) if Cosmos DB reports no capacity for your subscription.')
+param cosmosLocation string = location
+
 var suffix = uniqueString(resourceGroup().id)
 var short = take(suffix, 6)
 var names = {
@@ -184,11 +187,11 @@ resource lifecycle 'Microsoft.Storage/storageAccounts/managementPolicies@2023-05
 // ---------------- Cosmos DB (serverless, Entra-only) ----------------
 resource cosmos 'Microsoft.DocumentDB/databaseAccounts@2024-11-15' = {
   name: names.cosmos
-  location: location
+  location: cosmosLocation
   kind: 'GlobalDocumentDB'
   properties: {
     databaseAccountOfferType: 'Standard'
-    locations: [{ locationName: location, failoverPriority: 0 }]
+    locations: [{ locationName: cosmosLocation, failoverPriority: 0 }]
     capabilities: [{ name: 'EnableServerless' }]
     consistencyPolicy: { defaultConsistencyLevel: 'Session' }
     disableLocalAuth: true
@@ -519,6 +522,9 @@ resource cae 'Microsoft.App/managedEnvironments@2025-01-01' = {
   name: names.cae
   location: location
   properties: {
+    // Workload-profiles environment: its Consumption profile allows up to 4 vCPU / 8 GiB per replica
+    // (a consumption-only environment caps at 2 vCPU / 4 GiB) and still scales to zero.
+    workloadProfiles: [{ name: 'Consumption', workloadProfileType: 'Consumption' }]
     appLogsConfiguration: {
       destination: 'log-analytics'
       logAnalyticsConfiguration: { customerId: logs.properties.customerId, sharedKey: logs.listKeys().primarySharedKey }
@@ -532,6 +538,7 @@ resource encoderJob 'Microsoft.App/jobs@2025-01-01' = {
   identity: { type: 'UserAssigned', userAssignedIdentities: { '${encoderId.id}': {} } }
   properties: {
     environmentId: cae.id
+    workloadProfileName: 'Consumption'
     configuration: {
       triggerType: 'Event'
       replicaTimeout: 21600 // 6 hours

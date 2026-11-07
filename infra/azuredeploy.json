@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.48.1.52935",
-      "templateHash": "10546927695893870553"
+      "templateHash": "17095200572932352541"
     }
   },
   "parameters": {
@@ -105,6 +105,13 @@
       ],
       "metadata": {
         "description": "Data residency for Azure Communication Services."
+      }
+    },
+    "cosmosLocation": {
+      "type": "string",
+      "defaultValue": "[parameters('location')]",
+      "metadata": {
+        "description": "Region for Cosmos DB. Defaults to the resource group region. Set another region (for example northeurope) if Cosmos DB reports no capacity for your subscription."
       }
     }
   },
@@ -356,13 +363,13 @@
       "type": "Microsoft.DocumentDB/databaseAccounts",
       "apiVersion": "2024-11-15",
       "name": "[variables('names').cosmos]",
-      "location": "[parameters('location')]",
+      "location": "[parameters('cosmosLocation')]",
       "kind": "GlobalDocumentDB",
       "properties": {
         "databaseAccountOfferType": "Standard",
         "locations": [
           {
-            "locationName": "[parameters('location')]",
+            "locationName": "[parameters('cosmosLocation')]",
             "failoverPriority": 0
           }
         ],
@@ -971,6 +978,12 @@
       "name": "[variables('names').cae]",
       "location": "[parameters('location')]",
       "properties": {
+        "workloadProfiles": [
+          {
+            "name": "Consumption",
+            "workloadProfileType": "Consumption"
+          }
+        ],
         "appLogsConfiguration": {
           "destination": "log-analytics",
           "logAnalyticsConfiguration": {
@@ -996,6 +1009,7 @@
       },
       "properties": {
         "environmentId": "[resourceId('Microsoft.App/managedEnvironments', variables('names').cae)]",
+        "workloadProfileName": "Consumption",
         "configuration": {
           "triggerType": "Event",
           "replicaTimeout": 21600,
