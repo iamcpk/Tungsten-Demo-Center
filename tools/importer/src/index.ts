@@ -36,6 +36,8 @@ const reportArg = arg('report');
 // Hosts the importer may download from. Values in the spreadsheet never choose the host.
 const DOWNLOAD_HOSTS = new Set(['www.tungstendemocenter.com', 'tungstendemocenter.com', 'i.vimeocdn.com']);
 const MAX_DOWNLOAD = 500 * 1024 ** 2;
+/** Publish date for rows with no date at all: older than any real iVengi content, so they sort last. */
+const UNDATED = '2000-01-01T00:00:00.000Z';
 
 // ---------- column map (1-based, verified against the header row at start-up) ----------
 const COL = {
@@ -43,7 +45,7 @@ const COL = {
   pageDescription: [7, 'Page description'], status: [9, 'Set the status of the video:'], products: [10, 'Select products:'],
   title: [11, 'Title:'], notes: [14, 'Internal notifications'], verticals: [16, 'Select verticals:'],
   shortDescription: [17, 'Short description:'], authors: [21, 'Select authors:'], keywords: [27, 'Enter keywords'],
-  longText: [30, 'Long text:'], date: [34, 'Date:'], time: [35, 'Date:'], imageReg: [37, 'If you want to overwrite the default image'],
+  longText: [30, 'Long text:'], date: [34, 'Date:_date'], time: [35, 'Date:_time'], dateCustom: [36, 'Date:_date_time_custom'], imageReg: [37, 'If you want to overwrite the default image'],
   group: [42, 'Group:'], languages: [43, 'Select languages:'], itemType: [46, 'Item type'], categories: [47, 'Select the categories:'],
 } as const;
 // [description column, url column, display-name column] for the five attachment slots
@@ -134,6 +136,19 @@ async function main() {
       if (itemType === 'video' && status !== 'draft') { status = 'draft'; note(legacyId, title, 'no playable video URL: imported as draft'); }
     }
 
+    // Publish date drives "latest first" on the site, so it comes from the iVengi Date:_date column
+    // (+ Date:_time). Undated rows must not fall back to "now", which would push them to the top.
+    let publishedAt = excelDate(row.getCell(COL.date[0]).value ?? c('date'), c('time'));
+    if (!publishedAt) {
+      const custom = Date.parse(c('dateCustom'));
+      publishedAt = Number.isNaN(custom) ? undefined : new Date(custom).toISOString();
+      if (publishedAt) note(legacyId, title, 'Date:_date empty: used Date:_date_time_custom');
+    }
+    if (!publishedAt) {
+      publishedAt = prev?.publishedAt ?? UNDATED;
+      note(legacyId, title, `no publish date in the export: set to ${publishedAt.slice(0, 10)} so it sorts after dated videos`);
+    }
+
     const businessLines = parseMulti(c('type')).filter((b): b is BusinessLine => b === 'IA' || b === 'PA');
     const v: Video = {
       id,
@@ -156,7 +171,7 @@ async function main() {
       thumbnailPath: prev?.thumbnailPath,
       thumbnailUrl: undefined,
       attachments: [],
-      publishedAt: excelDate(row.getCell(COL.date[0]).value ?? c('date'), c('time')) ?? now,
+      publishedAt,
       createdAt: prev?.createdAt ?? now,
       updatedAt: now,
       createdBy: prev?.createdBy ?? 'ivengi-import',
