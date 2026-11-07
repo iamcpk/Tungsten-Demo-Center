@@ -1,0 +1,23 @@
+# Confidential source data: NEVER commit (contains internal notes and author data)
+iVengi Export/
+data/
+*.xlsx
+
+# Build output
+node_modules/
+dist/
+*.tsbuildinfo
+
+# Local config / secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.pfx
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+.claude/settings.local.json

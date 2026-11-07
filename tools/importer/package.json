@@ -1,0 +1,20 @@
+{
+  "name": "@tdc/importer",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node --test dist/parse.test.js",
+    "start": "node --env-file=../../.env dist/index.js"
+  },
+  "dependencies": {
+    "@tdc/core": "*",
+    "exceljs": "^4.4.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.17.0",
+    "typescript": "^5.7.2"
+  }
+}

@@ -1,0 +1,1117 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "_generator": {
+      "name": "bicep",
+      "version": "0.48.1.52935",
+      "templateHash": "10546927695893870553"
+    }
+  },
+  "parameters": {
+    "location": {
+      "type": "string",
+      "defaultValue": "[resourceGroup().location]",
+      "metadata": {
+        "description": "Azure region for all regional resources."
+      }
+    },
+    "namePrefix": {
+      "type": "string",
+      "defaultValue": "tdc",
+      "maxLength": 8,
+      "metadata": {
+        "description": "Short prefix used in resource names (lowercase letters/numbers, max 8)."
+      }
+    },
+    "appServiceSku": {
+      "type": "string",
+      "defaultValue": "B1",
+      "allowedValues": [
+        "B1",
+        "B2",
+        "B3",
+        "P0v3",
+        "P1v3",
+        "P2v3"
+      ],
+      "metadata": {
+        "description": "App Service plan SKU. B1 is fine for testing; P0v3 or higher recommended for production."
+      }
+    },
+    "webImage": {
+      "type": "string",
+      "defaultValue": "ghcr.io/iamcpk/tungsten-demo-center-web:latest",
+      "metadata": {
+        "description": "Container image for the public site."
+      }
+    },
+    "adminImage": {
+      "type": "string",
+      "defaultValue": "ghcr.io/iamcpk/tungsten-demo-center-admin:latest",
+      "metadata": {
+        "description": "Container image for the admin portal."
+      }
+    },
+    "encoderImage": {
+      "type": "string",
+      "defaultValue": "ghcr.io/iamcpk/tungsten-demo-center-encoder:latest",
+      "metadata": {
+        "description": "Container image for the HLS encoder job."
+      }
+    },
+    "entraTenantId": {
+      "type": "string",
+      "defaultValue": "[subscription().tenantId]",
+      "metadata": {
+        "description": "Entra ID tenant for admin sign-in. Defaults to the tenant you deploy from."
+      }
+    },
+    "entraClientId": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Client (application) ID of the admin portal app registration. Leave empty to deploy with the admin portal locked, then run scripts/configure-admin-auth.ps1."
+      }
+    },
+    "formsTo": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Mailbox(es) that receive contact / suggestion / demo form submissions (comma separated). Optional."
+      }
+    },
+    "operatorPrincipalId": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Object ID of a user or group that should be able to run the data importer from a workstation (Cosmos + Blob data access). Optional."
+      }
+    },
+    "adminAllowedIpRanges": {
+      "type": "array",
+      "defaultValue": [],
+      "metadata": {
+        "description": "Optional IP ranges (CIDR) allowed to reach the admin portal. Empty = reachable from anywhere (still requires Entra sign-in)."
+      }
+    },
+    "emailDataLocation": {
+      "type": "string",
+      "defaultValue": "Europe",
+      "allowedValues": [
+        "Europe",
+        "UK",
+        "United States"
+      ],
+      "metadata": {
+        "description": "Data residency for Azure Communication Services."
+      }
+    }
+  },
+  "variables": {
+    "copy": [
+      {
+        "name": "adminIpRules",
+        "count": "[length(parameters('adminAllowedIpRanges'))]",
+        "input": {
+          "ipAddress": "[parameters('adminAllowedIpRanges')[copyIndex('adminIpRules')]]",
+          "action": "Allow",
+          "priority": "[add(100, copyIndex('adminIpRules'))]",
+          "name": "[format('allow-{0}', copyIndex('adminIpRules'))]"
+        }
+      }
+    ],
+    "suffix": "[uniqueString(resourceGroup().id)]",
+    "short": "[take(variables('suffix'), 6)]",
+    "names": {
+      "logs": "[format('{0}-logs-{1}', parameters('namePrefix'), variables('short'))]",
+      "insights": "[format('{0}-ai-{1}', parameters('namePrefix'), variables('short'))]",
+      "storage": "[take(format('{0}media{1}', parameters('namePrefix'), variables('suffix')), 24)]",
+      "cosmos": "[format('{0}-cosmos-{1}', parameters('namePrefix'), variables('short'))]",
+      "plan": "[format('{0}-plan-{1}', parameters('namePrefix'), variables('short'))]",
+      "web": "[format('{0}-web-{1}', parameters('namePrefix'), variables('short'))]",
+      "admin": "[format('{0}-admin-{1}', parameters('namePrefix'), variables('short'))]",
+      "cae": "[format('{0}-cae-{1}', parameters('namePrefix'), variables('short'))]",
+      "job": "[format('{0}-encoder-{1}', parameters('namePrefix'), variables('short'))]",
+      "afd": "[format('{0}-afd-{1}', parameters('namePrefix'), variables('short'))]",
+      "acs": "[format('{0}-acs-{1}', parameters('namePrefix'), variables('short'))]",
+      "email": "[format('{0}-email-{1}', parameters('namePrefix'), variables('short'))]"
+    },
+    "webUrl": "[format('https://{0}.azurewebsites.net', variables('names').web)]",
+    "adminUrl": "[format('https://{0}.azurewebsites.net', variables('names').admin)]",
+    "dbName": "tdc",
+    "containerNames": [
+      "videos",
+      "meta",
+      "subscribers",
+      "submissions"
+    ],
+    "encodeQueue": "encode-jobs",
+    "roles": {
+      "blobDataContributor": "ba92f5b4-2d11-453d-a403-e96b0029c9fe",
+      "queueMessageSender": "c6a89b2d-59bc-44d0-9896-0f6e12d7b80a",
+      "queueMessageProcessor": "8a0f0c08-91a1-4084-bc3d-661d67233fed",
+      "queueDataReader": "19e7f393-937e-4f77-808e-94535e297925",
+      "contributor": "b24988ac-6180-42a0-ab88-20f7382dd24c",
+      "cosmosReader": "00000000-0000-0000-0000-000000000001",
+      "cosmosContributor": "00000000-0000-0000-0000-000000000002"
+    },
+    "dbScope": "[format('{0}/dbs/{1}', resourceId('Microsoft.DocumentDB/databaseAccounts', variables('names').cosmos), variables('dbName'))]",
+    "siteBase": {
+      "httpsOnly": true,
+      "clientAffinityEnabled": false
+    },
+    "siteConfigBase": {
+      "alwaysOn": true,
+      "ftpsState": "Disabled",
+      "minTlsVersion": "1.2",
+      "scmMinTlsVersion": "1.2",
+      "http20Enabled": true,
+      "healthCheckPath": "/healthz",
+      "remoteDebuggingEnabled": false
+    }
+  },
+  "resources": [
+    {
+      "type": "Microsoft.OperationalInsights/workspaces",
+      "apiVersion": "2023-09-01",
+      "name": "[variables('names').logs]",
+      "location": "[parameters('location')]",
+      "properties": {
+        "sku": {
+          "name": "PerGB2018"
+        },
+        "retentionInDays": 30
+      }
+    },
+    {
+      "type": "Microsoft.Insights/components",
+      "apiVersion": "2020-02-02",
+      "name": "[variables('names').insights]",
+      "location": "[parameters('location')]",
+      "kind": "web",
+      "properties": {
+        "Application_Type": "web",
+        "WorkspaceResourceId": "[resourceId('Microsoft.OperationalInsights/workspaces', variables('names').logs)]",
+        "DisableLocalAuth": false
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.OperationalInsights/workspaces', variables('names').logs)]"
+      ]
+    },
+    {
+      "type": "Microsoft.ManagedIdentity/userAssignedIdentities",
+      "apiVersion": "2023-01-31",
+      "name": "[format('{0}-id-web-{1}', parameters('namePrefix'), variables('short'))]",
+      "location": "[parameters('location')]"
+    },
+    {
+      "type": "Microsoft.ManagedIdentity/userAssignedIdentities",
+      "apiVersion": "2023-01-31",
+      "name": "[format('{0}-id-admin-{1}', parameters('namePrefix'), variables('short'))]",
+      "location": "[parameters('location')]"
+    },
+    {
+      "type": "Microsoft.ManagedIdentity/userAssignedIdentities",
+      "apiVersion": "2023-01-31",
+      "name": "[format('{0}-id-encoder-{1}', parameters('namePrefix'), variables('short'))]",
+      "location": "[parameters('location')]"
+    },
+    {
+      "type": "Microsoft.Storage/storageAccounts",
+      "apiVersion": "2023-05-01",
+      "name": "[variables('names').storage]",
+      "location": "[parameters('location')]",
+      "sku": {
+        "name": "Standard_LRS"
+      },
+      "kind": "StorageV2",
+      "properties": {
+        "accessTier": "Hot",
+        "minimumTlsVersion": "TLS1_2",
+        "supportsHttpsTrafficOnly": true,
+        "allowSharedKeyAccess": false,
+        "allowBlobPublicAccess": true,
+        "defaultToOAuthAuthentication": true,
+        "publicNetworkAccess": "Enabled"
+      }
+    },
+    {
+      "type": "Microsoft.Storage/storageAccounts/blobServices",
+      "apiVersion": "2023-05-01",
+      "name": "[format('{0}/{1}', variables('names').storage, 'default')]",
+      "properties": {
+        "deleteRetentionPolicy": {
+          "enabled": true,
+          "days": 14
+        },
+        "containerDeleteRetentionPolicy": {
+          "enabled": true,
+          "days": 14
+        },
+        "cors": {
+          "corsRules": [
+            {
+              "allowedOrigins": [
+                "[variables('adminUrl')]"
+              ],
+              "allowedMethods": [
+                "PUT",
+                "GET",
+                "HEAD",
+                "OPTIONS"
+              ],
+              "allowedHeaders": [
+                "*"
+              ],
+              "exposedHeaders": [
+                "etag",
+                "x-ms-request-id",
+                "x-ms-version"
+              ],
+              "maxAgeInSeconds": 3600
+            }
+          ]
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Storage/storageAccounts', variables('names').storage)]"
+      ]
+    },
+    {
+      "type": "Microsoft.Storage/storageAccounts/blobServices/containers",
+      "apiVersion": "2023-05-01",
+      "name": "[format('{0}/{1}/{2}', variables('names').storage, 'default', 'uploads')]",
+      "properties": {
+        "publicAccess": "None"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Storage/storageAccounts/blobServices', variables('names').storage, 'default')]"
+      ]
+    },
+    {
+      "type": "Microsoft.Storage/storageAccounts/blobServices/containers",
+      "apiVersion": "2023-05-01",
+      "name": "[format('{0}/{1}/{2}', variables('names').storage, 'default', 'media')]",
+      "properties": {
+        "publicAccess": "Blob"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Storage/storageAccounts/blobServices', variables('names').storage, 'default')]"
+      ]
+    },
+    {
+      "type": "Microsoft.Storage/storageAccounts/queueServices",
+      "apiVersion": "2023-05-01",
+      "name": "[format('{0}/{1}', variables('names').storage, 'default')]",
+      "dependsOn": [
+        "[resourceId('Microsoft.Storage/storageAccounts', variables('names').storage)]"
+      ]
+    },
+    {
+      "type": "Microsoft.Storage/storageAccounts/queueServices/queues",
+      "apiVersion": "2023-05-01",
+      "name": "[format('{0}/{1}/{2}', variables('names').storage, 'default', variables('encodeQueue'))]",
+      "dependsOn": [
+        "[resourceId('Microsoft.Storage/storageAccounts/queueServices', variables('names').storage, 'default')]"
+      ]
+    },
+    {
+      "type": "Microsoft.Storage/storageAccounts/managementPolicies",
+      "apiVersion": "2023-05-01",
+      "name": "[format('{0}/{1}', variables('names').storage, 'default')]",
+      "properties": {
+        "policy": {
+          "rules": [
+            {
+              "name": "uploads-to-cool",
+              "enabled": true,
+              "type": "Lifecycle",
+              "definition": {
+                "filters": {
+                  "blobTypes": [
+                    "blockBlob"
+                  ],
+                  "prefixMatch": [
+                    "uploads/"
+                  ]
+                },
+                "actions": {
+                  "baseBlob": {
+                    "tierToCool": {
+                      "daysAfterModificationGreaterThan": 30
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Storage/storageAccounts', variables('names').storage)]"
+      ]
+    },
+    {
+      "type": "Microsoft.DocumentDB/databaseAccounts",
+      "apiVersion": "2024-11-15",
+      "name": "[variables('names').cosmos]",
+      "location": "[parameters('location')]",
+      "kind": "GlobalDocumentDB",
+      "properties": {
+        "databaseAccountOfferType": "Standard",
+        "locations": [
+          {
+            "locationName": "[parameters('location')]",
+            "failoverPriority": 0
+          }
+        ],
+        "capabilities": [
+          {
+            "name": "EnableServerless"
+          }
+        ],
+        "consistencyPolicy": {
+          "defaultConsistencyLevel": "Session"
+        },
+        "disableLocalAuth": true,
+        "disableKeyBasedMetadataWriteAccess": true,
+        "minimalTlsVersion": "Tls12",
+        "publicNetworkAccess": "Enabled",
+        "backupPolicy": {
+          "type": "Continuous",
+          "continuousModeProperties": {
+            "tier": "Continuous7Days"
+          }
+        }
+      }
+    },
+    {
+      "type": "Microsoft.DocumentDB/databaseAccounts/sqlDatabases",
+      "apiVersion": "2024-11-15",
+      "name": "[format('{0}/{1}', variables('names').cosmos, variables('dbName'))]",
+      "properties": {
+        "resource": {
+          "id": "[variables('dbName')]"
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.DocumentDB/databaseAccounts', variables('names').cosmos)]"
+      ]
+    },
+    {
+      "copy": {
+        "name": "containers",
+        "count": "[length(variables('containerNames'))]"
+      },
+      "type": "Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers",
+      "apiVersion": "2024-11-15",
+      "name": "[format('{0}/{1}/{2}', variables('names').cosmos, variables('dbName'), variables('containerNames')[copyIndex()])]",
+      "properties": {
+        "resource": {
+          "id": "[variables('containerNames')[copyIndex()]]",
+          "partitionKey": {
+            "paths": [
+              "/id"
+            ],
+            "kind": "Hash"
+          }
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.DocumentDB/databaseAccounts/sqlDatabases', variables('names').cosmos, variables('dbName'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.DocumentDB/databaseAccounts/sqlRoleAssignments",
+      "apiVersion": "2024-11-15",
+      "name": "[format('{0}/{1}', variables('names').cosmos, guid(resourceId('Microsoft.DocumentDB/databaseAccounts', variables('names').cosmos), resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-id-web-{1}', parameters('namePrefix'), variables('short'))), 'reader'))]",
+      "properties": {
+        "roleDefinitionId": "[format('{0}/sqlRoleDefinitions/{1}', resourceId('Microsoft.DocumentDB/databaseAccounts', variables('names').cosmos), variables('roles').cosmosReader)]",
+        "principalId": "[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-id-web-{1}', parameters('namePrefix'), variables('short'))), '2023-01-31').principalId]",
+        "scope": "[variables('dbScope')]"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.DocumentDB/databaseAccounts', variables('names').cosmos)]",
+        "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-id-web-{1}', parameters('namePrefix'), variables('short')))]"
+      ]
+    },
+    {
+      "type": "Microsoft.DocumentDB/databaseAccounts/sqlRoleAssignments",
+      "apiVersion": "2024-11-15",
+      "name": "[format('{0}/{1}', variables('names').cosmos, guid(resourceId('Microsoft.DocumentDB/databaseAccounts', variables('names').cosmos), resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-id-web-{1}', parameters('namePrefix'), variables('short'))), 'subscribers'))]",
+      "properties": {
+        "roleDefinitionId": "[format('{0}/sqlRoleDefinitions/{1}', resourceId('Microsoft.DocumentDB/databaseAccounts', variables('names').cosmos), variables('roles').cosmosContributor)]",
+        "principalId": "[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-id-web-{1}', parameters('namePrefix'), variables('short'))), '2023-01-31').principalId]",
+        "scope": "[format('{0}/colls/subscribers', variables('dbScope'))]"
+      },
+      "dependsOn": [
+        "containers",
+        "[resourceId('Microsoft.DocumentDB/databaseAccounts', variables('names').cosmos)]",
+        "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-id-web-{1}', parameters('namePrefix'), variables('short')))]"
+      ]
+    },
+    {
+      "type": "Microsoft.DocumentDB/databaseAccounts/sqlRoleAssignments",
+      "apiVersion": "2024-11-15",
+      "name": "[format('{0}/{1}', variables('names').cosmos, guid(resourceId('Microsoft.DocumentDB/databaseAccounts', variables('names').cosmos), resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-id-web-{1}', parameters('namePrefix'), variables('short'))), 'submissions'))]",
+      "properties": {
+        "roleDefinitionId": "[format('{0}/sqlRoleDefinitions/{1}', resourceId('Microsoft.DocumentDB/databaseAccounts', variables('names').cosmos), variables('roles').cosmosContributor)]",
+        "principalId": "[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-id-web-{1}', parameters('namePrefix'), variables('short'))), '2023-01-31').principalId]",
+        "scope": "[format('{0}/colls/submissions', variables('dbScope'))]"
+      },
+      "dependsOn": [
+        "containers",
+        "[resourceId('Microsoft.DocumentDB/databaseAccounts', variables('names').cosmos)]",
+        "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-id-web-{1}', parameters('namePrefix'), variables('short')))]"
+      ]
+    },
+    {
+      "type": "Microsoft.DocumentDB/databaseAccounts/sqlRoleAssignments",
+      "apiVersion": "2024-11-15",
+      "name": "[format('{0}/{1}', variables('names').cosmos, guid(resourceId('Microsoft.DocumentDB/databaseAccounts', variables('names').cosmos), resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-id-admin-{1}', parameters('namePrefix'), variables('short'))), 'contributor'))]",
+      "properties": {
+        "roleDefinitionId": "[format('{0}/sqlRoleDefinitions/{1}', resourceId('Microsoft.DocumentDB/databaseAccounts', variables('names').cosmos), variables('roles').cosmosContributor)]",
+        "principalId": "[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-id-admin-{1}', parameters('namePrefix'), variables('short'))), '2023-01-31').principalId]",
+        "scope": "[variables('dbScope')]"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-id-admin-{1}', parameters('namePrefix'), variables('short')))]",
+        "[resourceId('Microsoft.DocumentDB/databaseAccounts', variables('names').cosmos)]"
+      ]
+    },
+    {
+      "type": "Microsoft.DocumentDB/databaseAccounts/sqlRoleAssignments",
+      "apiVersion": "2024-11-15",
+      "name": "[format('{0}/{1}', variables('names').cosmos, guid(resourceId('Microsoft.DocumentDB/databaseAccounts', variables('names').cosmos), resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-id-encoder-{1}', parameters('namePrefix'), variables('short'))), 'videos'))]",
+      "properties": {
+        "roleDefinitionId": "[format('{0}/sqlRoleDefinitions/{1}', resourceId('Microsoft.DocumentDB/databaseAccounts', variables('names').cosmos), variables('roles').cosmosContributor)]",
+        "principalId": "[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-id-encoder-{1}', parameters('namePrefix'), variables('short'))), '2023-01-31').principalId]",
+        "scope": "[format('{0}/colls/videos', variables('dbScope'))]"
+      },
+      "dependsOn": [
+        "containers",
+        "[resourceId('Microsoft.DocumentDB/databaseAccounts', variables('names').cosmos)]",
+        "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-id-encoder-{1}', parameters('namePrefix'), variables('short')))]"
+      ]
+    },
+    {
+      "condition": "[not(empty(parameters('operatorPrincipalId')))]",
+      "type": "Microsoft.DocumentDB/databaseAccounts/sqlRoleAssignments",
+      "apiVersion": "2024-11-15",
+      "name": "[format('{0}/{1}', variables('names').cosmos, guid(resourceId('Microsoft.DocumentDB/databaseAccounts', variables('names').cosmos), parameters('operatorPrincipalId'), 'operator'))]",
+      "properties": {
+        "roleDefinitionId": "[format('{0}/sqlRoleDefinitions/{1}', resourceId('Microsoft.DocumentDB/databaseAccounts', variables('names').cosmos), variables('roles').cosmosContributor)]",
+        "principalId": "[parameters('operatorPrincipalId')]",
+        "scope": "[variables('dbScope')]"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.DocumentDB/databaseAccounts', variables('names').cosmos)]"
+      ]
+    },
+    {
+      "type": "Microsoft.Authorization/roleAssignments",
+      "apiVersion": "2022-04-01",
+      "scope": "[resourceId('Microsoft.Storage/storageAccounts', variables('names').storage)]",
+      "name": "[guid(resourceId('Microsoft.Storage/storageAccounts', variables('names').storage), resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-id-admin-{1}', parameters('namePrefix'), variables('short'))), variables('roles').blobDataContributor)]",
+      "properties": {
+        "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('roles').blobDataContributor)]",
+        "principalId": "[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-id-admin-{1}', parameters('namePrefix'), variables('short'))), '2023-01-31').principalId]",
+        "principalType": "ServicePrincipal"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-id-admin-{1}', parameters('namePrefix'), variables('short')))]",
+        "[resourceId('Microsoft.Storage/storageAccounts', variables('names').storage)]"
+      ]
+    },
+    {
+      "type": "Microsoft.Authorization/roleAssignments",
+      "apiVersion": "2022-04-01",
+      "scope": "[resourceId('Microsoft.Storage/storageAccounts', variables('names').storage)]",
+      "name": "[guid(resourceId('Microsoft.Storage/storageAccounts', variables('names').storage), resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-id-admin-{1}', parameters('namePrefix'), variables('short'))), variables('roles').queueMessageSender)]",
+      "properties": {
+        "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('roles').queueMessageSender)]",
+        "principalId": "[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-id-admin-{1}', parameters('namePrefix'), variables('short'))), '2023-01-31').principalId]",
+        "principalType": "ServicePrincipal"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-id-admin-{1}', parameters('namePrefix'), variables('short')))]",
+        "[resourceId('Microsoft.Storage/storageAccounts', variables('names').storage)]"
+      ]
+    },
+    {
+      "type": "Microsoft.Authorization/roleAssignments",
+      "apiVersion": "2022-04-01",
+      "scope": "[resourceId('Microsoft.Storage/storageAccounts', variables('names').storage)]",
+      "name": "[guid(resourceId('Microsoft.Storage/storageAccounts', variables('names').storage), resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-id-encoder-{1}', parameters('namePrefix'), variables('short'))), variables('roles').blobDataContributor)]",
+      "properties": {
+        "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('roles').blobDataContributor)]",
+        "principalId": "[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-id-encoder-{1}', parameters('namePrefix'), variables('short'))), '2023-01-31').principalId]",
+        "principalType": "ServicePrincipal"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-id-encoder-{1}', parameters('namePrefix'), variables('short')))]",
+        "[resourceId('Microsoft.Storage/storageAccounts', variables('names').storage)]"
+      ]
+    },
+    {
+      "type": "Microsoft.Authorization/roleAssignments",
+      "apiVersion": "2022-04-01",
+      "scope": "[resourceId('Microsoft.Storage/storageAccounts', variables('names').storage)]",
+      "name": "[guid(resourceId('Microsoft.Storage/storageAccounts', variables('names').storage), resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-id-encoder-{1}', parameters('namePrefix'), variables('short'))), variables('roles').queueMessageProcessor)]",
+      "properties": {
+        "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('roles').queueMessageProcessor)]",
+        "principalId": "[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-id-encoder-{1}', parameters('namePrefix'), variables('short'))), '2023-01-31').principalId]",
+        "principalType": "ServicePrincipal"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-id-encoder-{1}', parameters('namePrefix'), variables('short')))]",
+        "[resourceId('Microsoft.Storage/storageAccounts', variables('names').storage)]"
+      ]
+    },
+    {
+      "type": "Microsoft.Authorization/roleAssignments",
+      "apiVersion": "2022-04-01",
+      "scope": "[resourceId('Microsoft.Storage/storageAccounts', variables('names').storage)]",
+      "name": "[guid(resourceId('Microsoft.Storage/storageAccounts', variables('names').storage), resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-id-encoder-{1}', parameters('namePrefix'), variables('short'))), variables('roles').queueDataReader)]",
+      "properties": {
+        "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('roles').queueDataReader)]",
+        "principalId": "[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-id-encoder-{1}', parameters('namePrefix'), variables('short'))), '2023-01-31').principalId]",
+        "principalType": "ServicePrincipal"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-id-encoder-{1}', parameters('namePrefix'), variables('short')))]",
+        "[resourceId('Microsoft.Storage/storageAccounts', variables('names').storage)]"
+      ]
+    },
+    {
+      "condition": "[not(empty(parameters('operatorPrincipalId')))]",
+      "type": "Microsoft.Authorization/roleAssignments",
+      "apiVersion": "2022-04-01",
+      "scope": "[resourceId('Microsoft.Storage/storageAccounts', variables('names').storage)]",
+      "name": "[guid(resourceId('Microsoft.Storage/storageAccounts', variables('names').storage), parameters('operatorPrincipalId'), variables('roles').blobDataContributor)]",
+      "properties": {
+        "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('roles').blobDataContributor)]",
+        "principalId": "[parameters('operatorPrincipalId')]"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Storage/storageAccounts', variables('names').storage)]"
+      ]
+    },
+    {
+      "type": "Microsoft.Communication/emailServices",
+      "apiVersion": "2023-04-01",
+      "name": "[variables('names').email]",
+      "location": "global",
+      "properties": {
+        "dataLocation": "[parameters('emailDataLocation')]"
+      }
+    },
+    {
+      "type": "Microsoft.Communication/emailServices/domains",
+      "apiVersion": "2023-04-01",
+      "name": "[format('{0}/{1}', variables('names').email, 'AzureManagedDomain')]",
+      "location": "global",
+      "properties": {
+        "domainManagement": "AzureManaged",
+        "userEngagementTracking": "Disabled"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Communication/emailServices', variables('names').email)]"
+      ]
+    },
+    {
+      "type": "Microsoft.Communication/communicationServices",
+      "apiVersion": "2023-04-01",
+      "name": "[variables('names').acs]",
+      "location": "global",
+      "properties": {
+        "dataLocation": "[parameters('emailDataLocation')]",
+        "linkedDomains": [
+          "[resourceId('Microsoft.Communication/emailServices/domains', variables('names').email, 'AzureManagedDomain')]"
+        ]
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Communication/emailServices/domains', variables('names').email, 'AzureManagedDomain')]"
+      ]
+    },
+    {
+      "type": "Microsoft.Authorization/roleAssignments",
+      "apiVersion": "2022-04-01",
+      "scope": "[resourceId('Microsoft.Communication/communicationServices', variables('names').acs)]",
+      "name": "[guid(resourceId('Microsoft.Communication/communicationServices', variables('names').acs), resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-id-web-{1}', parameters('namePrefix'), variables('short'))), variables('roles').contributor)]",
+      "properties": {
+        "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('roles').contributor)]",
+        "principalId": "[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-id-web-{1}', parameters('namePrefix'), variables('short'))), '2023-01-31').principalId]",
+        "principalType": "ServicePrincipal"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Communication/communicationServices', variables('names').acs)]",
+        "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-id-web-{1}', parameters('namePrefix'), variables('short')))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Authorization/roleAssignments",
+      "apiVersion": "2022-04-01",
+      "scope": "[resourceId('Microsoft.Communication/communicationServices', variables('names').acs)]",
+      "name": "[guid(resourceId('Microsoft.Communication/communicationServices', variables('names').acs), resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-id-admin-{1}', parameters('namePrefix'), variables('short'))), variables('roles').contributor)]",
+      "properties": {
+        "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('roles').contributor)]",
+        "principalId": "[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-id-admin-{1}', parameters('namePrefix'), variables('short'))), '2023-01-31').principalId]",
+        "principalType": "ServicePrincipal"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Communication/communicationServices', variables('names').acs)]",
+        "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-id-admin-{1}', parameters('namePrefix'), variables('short')))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Cdn/profiles",
+      "apiVersion": "2024-02-01",
+      "name": "[variables('names').afd]",
+      "location": "global",
+      "sku": {
+        "name": "Standard_AzureFrontDoor"
+      }
+    },
+    {
+      "type": "Microsoft.Cdn/profiles/afdEndpoints",
+      "apiVersion": "2024-02-01",
+      "name": "[format('{0}/{1}', variables('names').afd, format('{0}-media-{1}', parameters('namePrefix'), variables('short')))]",
+      "location": "global",
+      "properties": {
+        "enabledState": "Enabled"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Cdn/profiles', variables('names').afd)]"
+      ]
+    },
+    {
+      "type": "Microsoft.Cdn/profiles/originGroups",
+      "apiVersion": "2024-02-01",
+      "name": "[format('{0}/{1}', variables('names').afd, 'media-storage')]",
+      "properties": {
+        "loadBalancingSettings": {
+          "sampleSize": 4,
+          "successfulSamplesRequired": 3,
+          "additionalLatencyInMilliseconds": 50
+        },
+        "sessionAffinityState": "Disabled"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Cdn/profiles', variables('names').afd)]"
+      ]
+    },
+    {
+      "type": "Microsoft.Cdn/profiles/originGroups/origins",
+      "apiVersion": "2024-02-01",
+      "name": "[format('{0}/{1}/{2}', variables('names').afd, 'media-storage', 'blob')]",
+      "properties": {
+        "hostName": "[format('{0}.blob.{1}', variables('names').storage, environment().suffixes.storage)]",
+        "originHostHeader": "[format('{0}.blob.{1}', variables('names').storage, environment().suffixes.storage)]",
+        "httpsPort": 443,
+        "priority": 1,
+        "weight": 1000,
+        "enabledState": "Enabled",
+        "enforceCertificateNameCheck": true
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Cdn/profiles/originGroups', variables('names').afd, 'media-storage')]",
+        "[resourceId('Microsoft.Storage/storageAccounts', variables('names').storage)]"
+      ]
+    },
+    {
+      "type": "Microsoft.Cdn/profiles/ruleSets",
+      "apiVersion": "2024-02-01",
+      "name": "[format('{0}/{1}', variables('names').afd, 'mediaheaders')]",
+      "dependsOn": [
+        "[resourceId('Microsoft.Cdn/profiles', variables('names').afd)]"
+      ]
+    },
+    {
+      "type": "Microsoft.Cdn/profiles/ruleSets/rules",
+      "apiVersion": "2024-02-01",
+      "name": "[format('{0}/{1}/{2}', variables('names').afd, 'mediaheaders', 'cors')]",
+      "properties": {
+        "order": 1,
+        "conditions": [],
+        "actions": [
+          {
+            "name": "ModifyResponseHeader",
+            "parameters": {
+              "typeName": "DeliveryRuleHeaderActionParameters",
+              "headerAction": "Overwrite",
+              "headerName": "Access-Control-Allow-Origin",
+              "value": "*"
+            }
+          },
+          {
+            "name": "ModifyResponseHeader",
+            "parameters": {
+              "typeName": "DeliveryRuleHeaderActionParameters",
+              "headerAction": "Overwrite",
+              "headerName": "X-Content-Type-Options",
+              "value": "nosniff"
+            }
+          }
+        ]
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Cdn/profiles/ruleSets', variables('names').afd, 'mediaheaders')]"
+      ]
+    },
+    {
+      "type": "Microsoft.Cdn/profiles/afdEndpoints/routes",
+      "apiVersion": "2024-02-01",
+      "name": "[format('{0}/{1}/{2}', variables('names').afd, format('{0}-media-{1}', parameters('namePrefix'), variables('short')), 'media')]",
+      "properties": {
+        "originGroup": {
+          "id": "[resourceId('Microsoft.Cdn/profiles/originGroups', variables('names').afd, 'media-storage')]"
+        },
+        "originPath": "/media",
+        "ruleSets": [
+          {
+            "id": "[resourceId('Microsoft.Cdn/profiles/ruleSets', variables('names').afd, 'mediaheaders')]"
+          }
+        ],
+        "supportedProtocols": [
+          "Http",
+          "Https"
+        ],
+        "patternsToMatch": [
+          "/*"
+        ],
+        "forwardingProtocol": "HttpsOnly",
+        "httpsRedirect": "Enabled",
+        "linkToDefaultDomain": "Enabled",
+        "cacheConfiguration": {
+          "queryStringCachingBehavior": "IgnoreQueryString",
+          "compressionSettings": {
+            "isCompressionEnabled": true,
+            "contentTypesToCompress": [
+              "application/vnd.apple.mpegurl",
+              "application/x-mpegURL",
+              "text/plain"
+            ]
+          }
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Cdn/profiles/ruleSets/rules', variables('names').afd, 'mediaheaders', 'cors')]",
+        "[resourceId('Microsoft.Cdn/profiles/afdEndpoints', variables('names').afd, format('{0}-media-{1}', parameters('namePrefix'), variables('short')))]",
+        "[resourceId('Microsoft.Cdn/profiles/originGroups/origins', variables('names').afd, 'media-storage', 'blob')]",
+        "[resourceId('Microsoft.Cdn/profiles/originGroups', variables('names').afd, 'media-storage')]",
+        "[resourceId('Microsoft.Cdn/profiles/ruleSets', variables('names').afd, 'mediaheaders')]"
+      ]
+    },
+    {
+      "type": "Microsoft.Web/serverfarms",
+      "apiVersion": "2023-12-01",
+      "name": "[variables('names').plan]",
+      "location": "[parameters('location')]",
+      "kind": "linux",
+      "sku": {
+        "name": "[parameters('appServiceSku')]"
+      },
+      "properties": {
+        "reserved": true
+      }
+    },
+    {
+      "type": "Microsoft.Web/sites",
+      "apiVersion": "2023-12-01",
+      "name": "[variables('names').web]",
+      "location": "[parameters('location')]",
+      "kind": "app,linux,container",
+      "identity": {
+        "type": "UserAssigned",
+        "userAssignedIdentities": {
+          "[format('{0}', resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-id-web-{1}', parameters('namePrefix'), variables('short'))))]": {}
+        }
+      },
+      "properties": "[union(variables('siteBase'), createObject('serverFarmId', resourceId('Microsoft.Web/serverfarms', variables('names').plan), 'siteConfig', union(variables('siteConfigBase'), createObject('linuxFxVersion', format('DOCKER|{0}', parameters('webImage')), 'appSettings', concat(createArray(createObject('name', 'WEBSITES_PORT', 'value', '8080'), createObject('name', 'PORT', 'value', '8080'), createObject('name', 'NODE_ENV', 'value', 'production'), createObject('name', 'DATA_MODE', 'value', 'cosmos'), createObject('name', 'COSMOS_ENDPOINT', 'value', reference(resourceId('Microsoft.DocumentDB/databaseAccounts', variables('names').cosmos), '2024-11-15').documentEndpoint), createObject('name', 'COSMOS_DATABASE', 'value', variables('dbName')), createObject('name', 'MEDIA_BASE_URL', 'value', format('https://{0}', reference(resourceId('Microsoft.Cdn/profiles/afdEndpoints', variables('names').afd, format('{0}-media-{1}', parameters('namePrefix'), variables('short'))), '2024-02-01').hostName)), createObject('name', 'PUBLIC_SITE_URL', 'value', variables('webUrl')), createObject('name', 'ACS_ENDPOINT', 'value', format('https://{0}', reference(resourceId('Microsoft.Communication/communicationServices', variables('names').acs), '2023-04-01').hostName)), createObject('name', 'MAIL_FROM', 'value', format('DoNotReply@{0}', reference(resourceId('Microsoft.Communication/emailServices/domains', variables('names').email, 'AzureManagedDomain'), '2023-04-01').mailFromSenderDomain)), createObject('name', 'FORMS_TO', 'value', parameters('formsTo')), createObject('name', 'APPLICATIONINSIGHTS_CONNECTION_STRING', 'value', reference(resourceId('Microsoft.Insights/components', variables('names').insights), '2020-02-02').ConnectionString), createObject('name', 'WEBSITES_ENABLE_APP_SERVICE_STORAGE', 'value', 'false')), createArray(createObject('name', 'AZURE_CLIENT_ID', 'value', reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-id-web-{1}', parameters('namePrefix'), variables('short'))), '2023-01-31').clientId)))))))]",
+      "dependsOn": [
+        "[resourceId('Microsoft.Communication/communicationServices', variables('names').acs)]",
+        "[resourceId('Microsoft.Cdn/profiles/afdEndpoints', variables('names').afd, format('{0}-media-{1}', parameters('namePrefix'), variables('short')))]",
+        "[resourceId('Microsoft.DocumentDB/databaseAccounts', variables('names').cosmos)]",
+        "[resourceId('Microsoft.DocumentDB/databaseAccounts/sqlRoleAssignments', variables('names').cosmos, guid(resourceId('Microsoft.DocumentDB/databaseAccounts', variables('names').cosmos), resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-id-web-{1}', parameters('namePrefix'), variables('short'))), 'submissions'))]",
+        "[resourceId('Microsoft.DocumentDB/databaseAccounts/sqlRoleAssignments', variables('names').cosmos, guid(resourceId('Microsoft.DocumentDB/databaseAccounts', variables('names').cosmos), resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-id-web-{1}', parameters('namePrefix'), variables('short'))), 'reader'))]",
+        "[resourceId('Microsoft.DocumentDB/databaseAccounts/sqlRoleAssignments', variables('names').cosmos, guid(resourceId('Microsoft.DocumentDB/databaseAccounts', variables('names').cosmos), resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-id-web-{1}', parameters('namePrefix'), variables('short'))), 'subscribers'))]",
+        "[resourceId('Microsoft.Communication/emailServices/domains', variables('names').email, 'AzureManagedDomain')]",
+        "[resourceId('Microsoft.Insights/components', variables('names').insights)]",
+        "[resourceId('Microsoft.Web/serverfarms', variables('names').plan)]",
+        "[extensionResourceId(resourceId('Microsoft.Communication/communicationServices', variables('names').acs), 'Microsoft.Authorization/roleAssignments', guid(resourceId('Microsoft.Communication/communicationServices', variables('names').acs), resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-id-web-{1}', parameters('namePrefix'), variables('short'))), variables('roles').contributor))]",
+        "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-id-web-{1}', parameters('namePrefix'), variables('short')))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Web/sites",
+      "apiVersion": "2023-12-01",
+      "name": "[variables('names').admin]",
+      "location": "[parameters('location')]",
+      "kind": "app,linux,container",
+      "identity": {
+        "type": "UserAssigned",
+        "userAssignedIdentities": {
+          "[format('{0}', resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-id-admin-{1}', parameters('namePrefix'), variables('short'))))]": {}
+        }
+      },
+      "properties": "[union(variables('siteBase'), createObject('serverFarmId', resourceId('Microsoft.Web/serverfarms', variables('names').plan), 'siteConfig', union(variables('siteConfigBase'), createObject('linuxFxVersion', format('DOCKER|{0}', parameters('adminImage')), 'ipSecurityRestrictions', variables('adminIpRules'), 'ipSecurityRestrictionsDefaultAction', if(empty(parameters('adminAllowedIpRanges')), 'Allow', 'Deny'), 'appSettings', concat(createArray(createObject('name', 'WEBSITES_PORT', 'value', '8080'), createObject('name', 'PORT', 'value', '8080'), createObject('name', 'NODE_ENV', 'value', 'production'), createObject('name', 'DATA_MODE', 'value', 'cosmos'), createObject('name', 'COSMOS_ENDPOINT', 'value', reference(resourceId('Microsoft.DocumentDB/databaseAccounts', variables('names').cosmos), '2024-11-15').documentEndpoint), createObject('name', 'COSMOS_DATABASE', 'value', variables('dbName')), createObject('name', 'MEDIA_BASE_URL', 'value', format('https://{0}', reference(resourceId('Microsoft.Cdn/profiles/afdEndpoints', variables('names').afd, format('{0}-media-{1}', parameters('namePrefix'), variables('short'))), '2024-02-01').hostName)), createObject('name', 'PUBLIC_SITE_URL', 'value', variables('webUrl')), createObject('name', 'ACS_ENDPOINT', 'value', format('https://{0}', reference(resourceId('Microsoft.Communication/communicationServices', variables('names').acs), '2023-04-01').hostName)), createObject('name', 'MAIL_FROM', 'value', format('DoNotReply@{0}', reference(resourceId('Microsoft.Communication/emailServices/domains', variables('names').email, 'AzureManagedDomain'), '2023-04-01').mailFromSenderDomain)), createObject('name', 'FORMS_TO', 'value', parameters('formsTo')), createObject('name', 'APPLICATIONINSIGHTS_CONNECTION_STRING', 'value', reference(resourceId('Microsoft.Insights/components', variables('names').insights), '2020-02-02').ConnectionString), createObject('name', 'WEBSITES_ENABLE_APP_SERVICE_STORAGE', 'value', 'false')), createArray(createObject('name', 'AZURE_CLIENT_ID', 'value', reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-id-admin-{1}', parameters('namePrefix'), variables('short'))), '2023-01-31').clientId), createObject('name', 'STORAGE_ACCOUNT', 'value', variables('names').storage), createObject('name', 'AUTH_MODE', 'value', 'easyauth')))))))]",
+      "dependsOn": [
+        "[resourceId('Microsoft.Communication/communicationServices', variables('names').acs)]",
+        "[extensionResourceId(resourceId('Microsoft.Communication/communicationServices', variables('names').acs), 'Microsoft.Authorization/roleAssignments', guid(resourceId('Microsoft.Communication/communicationServices', variables('names').acs), resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-id-admin-{1}', parameters('namePrefix'), variables('short'))), variables('roles').contributor))]",
+        "[extensionResourceId(resourceId('Microsoft.Storage/storageAccounts', variables('names').storage), 'Microsoft.Authorization/roleAssignments', guid(resourceId('Microsoft.Storage/storageAccounts', variables('names').storage), resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-id-admin-{1}', parameters('namePrefix'), variables('short'))), variables('roles').blobDataContributor))]",
+        "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-id-admin-{1}', parameters('namePrefix'), variables('short')))]",
+        "[extensionResourceId(resourceId('Microsoft.Storage/storageAccounts', variables('names').storage), 'Microsoft.Authorization/roleAssignments', guid(resourceId('Microsoft.Storage/storageAccounts', variables('names').storage), resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-id-admin-{1}', parameters('namePrefix'), variables('short'))), variables('roles').queueMessageSender))]",
+        "[resourceId('Microsoft.Cdn/profiles/afdEndpoints', variables('names').afd, format('{0}-media-{1}', parameters('namePrefix'), variables('short')))]",
+        "[resourceId('Microsoft.DocumentDB/databaseAccounts', variables('names').cosmos)]",
+        "[resourceId('Microsoft.DocumentDB/databaseAccounts/sqlRoleAssignments', variables('names').cosmos, guid(resourceId('Microsoft.DocumentDB/databaseAccounts', variables('names').cosmos), resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-id-admin-{1}', parameters('namePrefix'), variables('short'))), 'contributor'))]",
+        "[resourceId('Microsoft.Communication/emailServices/domains', variables('names').email, 'AzureManagedDomain')]",
+        "[resourceId('Microsoft.Insights/components', variables('names').insights)]",
+        "[resourceId('Microsoft.Web/serverfarms', variables('names').plan)]",
+        "[resourceId('Microsoft.Storage/storageAccounts', variables('names').storage)]"
+      ]
+    },
+    {
+      "type": "Microsoft.Web/sites/config",
+      "apiVersion": "2023-12-01",
+      "name": "[format('{0}/{1}', variables('names').admin, 'authsettingsV2')]",
+      "properties": {
+        "platform": {
+          "enabled": true
+        },
+        "globalValidation": {
+          "requireAuthentication": true,
+          "unauthenticatedClientAction": "[if(empty(parameters('entraClientId')), 'Return401', 'RedirectToLoginPage')]",
+          "redirectToProvider": "azureactivedirectory",
+          "excludedPaths": [
+            "/healthz"
+          ]
+        },
+        "identityProviders": {
+          "azureActiveDirectory": {
+            "enabled": "[not(empty(parameters('entraClientId')))]",
+            "registration": {
+              "openIdIssuer": "[format('{0}{1}/v2.0', environment().authentication.loginEndpoint, parameters('entraTenantId'))]",
+              "clientId": "[if(empty(parameters('entraClientId')), null(), parameters('entraClientId'))]"
+            },
+            "validation": {
+              "allowedAudiences": "[if(empty(parameters('entraClientId')), createArray(), createArray(parameters('entraClientId'), format('api://{0}', parameters('entraClientId'))))]"
+            }
+          }
+        },
+        "login": {
+          "tokenStore": {
+            "enabled": false
+          },
+          "preserveUrlFragmentsForLogins": true,
+          "cookieExpiration": {
+            "convention": "FixedTime",
+            "timeToExpiration": "08:00:00"
+          }
+        },
+        "httpSettings": {
+          "requireHttps": true,
+          "forwardProxy": {
+            "convention": "NoProxy"
+          }
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Web/sites', variables('names').admin)]"
+      ]
+    },
+    {
+      "type": "Microsoft.Web/sites/basicPublishingCredentialsPolicies",
+      "apiVersion": "2023-12-01",
+      "name": "[format('{0}/{1}', variables('names').web, 'ftp')]",
+      "properties": {
+        "allow": false
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Web/sites', variables('names').web)]"
+      ]
+    },
+    {
+      "type": "Microsoft.Web/sites/basicPublishingCredentialsPolicies",
+      "apiVersion": "2023-12-01",
+      "name": "[format('{0}/{1}', variables('names').web, 'scm')]",
+      "properties": {
+        "allow": false
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Web/sites', variables('names').web)]"
+      ]
+    },
+    {
+      "type": "Microsoft.Web/sites/basicPublishingCredentialsPolicies",
+      "apiVersion": "2023-12-01",
+      "name": "[format('{0}/{1}', variables('names').admin, 'ftp')]",
+      "properties": {
+        "allow": false
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Web/sites', variables('names').admin)]"
+      ]
+    },
+    {
+      "type": "Microsoft.Web/sites/basicPublishingCredentialsPolicies",
+      "apiVersion": "2023-12-01",
+      "name": "[format('{0}/{1}', variables('names').admin, 'scm')]",
+      "properties": {
+        "allow": false
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Web/sites', variables('names').admin)]"
+      ]
+    },
+    {
+      "type": "Microsoft.App/managedEnvironments",
+      "apiVersion": "2025-01-01",
+      "name": "[variables('names').cae]",
+      "location": "[parameters('location')]",
+      "properties": {
+        "appLogsConfiguration": {
+          "destination": "log-analytics",
+          "logAnalyticsConfiguration": {
+            "customerId": "[reference(resourceId('Microsoft.OperationalInsights/workspaces', variables('names').logs), '2023-09-01').customerId]",
+            "sharedKey": "[listKeys(resourceId('Microsoft.OperationalInsights/workspaces', variables('names').logs), '2023-09-01').primarySharedKey]"
+          }
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.OperationalInsights/workspaces', variables('names').logs)]"
+      ]
+    },
+    {
+      "type": "Microsoft.App/jobs",
+      "apiVersion": "2025-01-01",
+      "name": "[variables('names').job]",
+      "location": "[parameters('location')]",
+      "identity": {
+        "type": "UserAssigned",
+        "userAssignedIdentities": {
+          "[format('{0}', resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-id-encoder-{1}', parameters('namePrefix'), variables('short'))))]": {}
+        }
+      },
+      "properties": {
+        "environmentId": "[resourceId('Microsoft.App/managedEnvironments', variables('names').cae)]",
+        "configuration": {
+          "triggerType": "Event",
+          "replicaTimeout": 21600,
+          "replicaRetryLimit": 0,
+          "eventTriggerConfig": {
+            "parallelism": 1,
+            "replicaCompletionCount": 1,
+            "scale": {
+              "minExecutions": 0,
+              "maxExecutions": 3,
+              "pollingInterval": 30,
+              "rules": [
+                {
+                  "name": "encode-queue",
+                  "type": "azure-queue",
+                  "metadata": {
+                    "accountName": "[variables('names').storage]",
+                    "queueName": "[variables('encodeQueue')]",
+                    "queueLength": "1"
+                  },
+                  "identity": "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-id-encoder-{1}', parameters('namePrefix'), variables('short')))]"
+                }
+              ]
+            }
+          }
+        },
+        "template": {
+          "containers": [
+            {
+              "name": "encoder",
+              "image": "[parameters('encoderImage')]",
+              "resources": {
+                "cpu": "[json('4.0')]",
+                "memory": "8Gi"
+              },
+              "env": [
+                {
+                  "name": "DATA_MODE",
+                  "value": "cosmos"
+                },
+                {
+                  "name": "COSMOS_ENDPOINT",
+                  "value": "[reference(resourceId('Microsoft.DocumentDB/databaseAccounts', variables('names').cosmos), '2024-11-15').documentEndpoint]"
+                },
+                {
+                  "name": "COSMOS_DATABASE",
+                  "value": "[variables('dbName')]"
+                },
+                {
+                  "name": "STORAGE_ACCOUNT",
+                  "value": "[variables('names').storage]"
+                },
+                {
+                  "name": "MEDIA_BASE_URL",
+                  "value": "[format('https://{0}', reference(resourceId('Microsoft.Cdn/profiles/afdEndpoints', variables('names').afd, format('{0}-media-{1}', parameters('namePrefix'), variables('short'))), '2024-02-01').hostName)]"
+                },
+                {
+                  "name": "AZURE_CLIENT_ID",
+                  "value": "[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-id-encoder-{1}', parameters('namePrefix'), variables('short'))), '2023-01-31').clientId]"
+                },
+                {
+                  "name": "APPLICATIONINSIGHTS_CONNECTION_STRING",
+                  "value": "[reference(resourceId('Microsoft.Insights/components', variables('names').insights), '2020-02-02').ConnectionString]"
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Cdn/profiles/afdEndpoints', variables('names').afd, format('{0}-media-{1}', parameters('namePrefix'), variables('short')))]",
+        "[resourceId('Microsoft.App/managedEnvironments', variables('names').cae)]",
+        "[resourceId('Microsoft.DocumentDB/databaseAccounts', variables('names').cosmos)]",
+        "[resourceId('Microsoft.DocumentDB/databaseAccounts/sqlRoleAssignments', variables('names').cosmos, guid(resourceId('Microsoft.DocumentDB/databaseAccounts', variables('names').cosmos), resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-id-encoder-{1}', parameters('namePrefix'), variables('short'))), 'videos'))]",
+        "[extensionResourceId(resourceId('Microsoft.Storage/storageAccounts', variables('names').storage), 'Microsoft.Authorization/roleAssignments', guid(resourceId('Microsoft.Storage/storageAccounts', variables('names').storage), resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-id-encoder-{1}', parameters('namePrefix'), variables('short'))), variables('roles').blobDataContributor))]",
+        "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-id-encoder-{1}', parameters('namePrefix'), variables('short')))]",
+        "[extensionResourceId(resourceId('Microsoft.Storage/storageAccounts', variables('names').storage), 'Microsoft.Authorization/roleAssignments', guid(resourceId('Microsoft.Storage/storageAccounts', variables('names').storage), resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-id-encoder-{1}', parameters('namePrefix'), variables('short'))), variables('roles').queueMessageProcessor))]",
+        "[extensionResourceId(resourceId('Microsoft.Storage/storageAccounts', variables('names').storage), 'Microsoft.Authorization/roleAssignments', guid(resourceId('Microsoft.Storage/storageAccounts', variables('names').storage), resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-id-encoder-{1}', parameters('namePrefix'), variables('short'))), variables('roles').queueDataReader))]",
+        "[resourceId('Microsoft.Insights/components', variables('names').insights)]",
+        "[resourceId('Microsoft.Storage/storageAccounts/queueServices/queues', variables('names').storage, 'default', variables('encodeQueue'))]",
+        "[resourceId('Microsoft.Storage/storageAccounts', variables('names').storage)]"
+      ]
+    }
+  ],
+  "outputs": {
+    "publicSiteUrl": {
+      "type": "string",
+      "value": "[variables('webUrl')]"
+    },
+    "adminPortalUrl": {
+      "type": "string",
+      "value": "[variables('adminUrl')]"
+    },
+    "adminRedirectUri": {
+      "type": "string",
+      "value": "[format('{0}/.auth/login/aad/callback', variables('adminUrl'))]"
+    },
+    "adminWebAppName": {
+      "type": "string",
+      "value": "[variables('names').admin]"
+    },
+    "mediaBaseUrl": {
+      "type": "string",
+      "value": "[format('https://{0}', reference(resourceId('Microsoft.Cdn/profiles/afdEndpoints', variables('names').afd, format('{0}-media-{1}', parameters('namePrefix'), variables('short'))), '2024-02-01').hostName)]"
+    },
+    "storageAccount": {
+      "type": "string",
+      "value": "[variables('names').storage]"
+    },
+    "cosmosEndpoint": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.DocumentDB/databaseAccounts', variables('names').cosmos), '2024-11-15').documentEndpoint]"
+    },
+    "mailFrom": {
+      "type": "string",
+      "value": "[format('DoNotReply@{0}', reference(resourceId('Microsoft.Communication/emailServices/domains', variables('names').email, 'AzureManagedDomain'), '2023-04-01').mailFromSenderDomain)]"
+    }
+  }
+}

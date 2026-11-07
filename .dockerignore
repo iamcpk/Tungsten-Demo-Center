@@ -1,0 +1,12 @@
+**/node_modules
+**/dist
+data
+iVengi Export
+*.xlsx
+.git
+.github
+.env
+.env.*
+infra
+scripts
+docs

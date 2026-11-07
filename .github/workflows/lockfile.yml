@@ -1,0 +1,42 @@
+name: Create lockfile
+
+# One-off bootstrap: the repo was written on a machine that cannot reach the npm registry,
+# so the first package-lock.json is generated here. Once the lockfile exists this does nothing.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  lockfile:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - id: check
+        run: if [ -f package-lock.json ]; then echo "present=true" >> "$GITHUB_OUTPUT"; else echo "present=false" >> "$GITHUB_OUTPUT"; fi
+      - if: steps.check.outputs.present == 'false'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Resolve dependencies (no install scripts run)
+        if: steps.check.outputs.present == 'false'
+        run: npm install --package-lock-only --ignore-scripts --no-fund --no-audit
+      - name: Commit package-lock.json
+        if: steps.check.outputs.present == 'false'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package-lock.json
+          git commit -m "Add package-lock.json"
+          git push
+      - name: Run CI and image builds on the new commit
+        if: steps.check.outputs.present == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh workflow run ci.yml --ref main
+          gh workflow run images.yml --ref main

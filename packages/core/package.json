@@ -1,0 +1,33 @@
+{
+  "name": "@tdc/core",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node --test dist/core.test.js"
+  },
+  "dependencies": {
+    "@azure/communication-email": "^1.0.0",
+    "@azure/cosmos": "^4.2.0",
+    "@azure/identity": "^4.5.0",
+    "@azure/storage-blob": "^12.26.0",
+    "@azure/storage-queue": "^12.25.0",
+    "sanitize-html": "^2.14.0",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.17.0",
+    "@types/sanitize-html": "^2.13.0",
+    "typescript": "^5.7.2"
+  }
+}

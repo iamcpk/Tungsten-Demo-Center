@@ -1,0 +1,21 @@
+{
+  "name": "@tdc/encoder",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node --test dist/ladder.test.js",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@azure/storage-blob": "^12.26.0",
+    "@azure/storage-queue": "^12.25.0",
+    "@tdc/core": "*"
+  },
+  "devDependencies": {
+    "@types/node": "^20.17.0",
+    "typescript": "^5.7.2"
+  }
+}

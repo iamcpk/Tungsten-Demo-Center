@@ -1,0 +1,14 @@
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule: { interval: weekly }
+    groups:
+      azure: { patterns: ['@azure/*'] }
+      react: { patterns: ['react', 'react-dom', 'react-router-dom', '@types/react*'] }
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: { interval: monthly }
+  - package-ecosystem: docker
+    directory: /docker
+    schedule: { interval: monthly }
