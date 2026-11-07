@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { SearchBox } from '../components/Layout';
 import { CardGrid, SkeletonGrid } from '../components/VideoCard';
@@ -23,7 +23,10 @@ export default function Browse({ status }: { status: 'active' | 'archived' }) {
   const [params, setParams] = useSearchParams();
   const [extra, setExtra] = useState<Video[]>([]);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [moreError, setMoreError] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
+  const sentinel = useRef<HTMLDivElement>(null);
+  const busy = useRef(false);
   useTitle(status === 'archived' ? 'Archived videos' : 'Videos');
 
   const query = useMemo(() => {
@@ -32,10 +35,13 @@ export default function Browse({ status }: { status: 'active' | 'archived' }) {
     p.set('limit', String(PAGE));
     return p.toString();
   }, [params, status]);
-  useEffect(() => setExtra([]), [query]);
+  // The query that the current results belong to; a page that returns after the filters changed is dropped.
+  const currentQuery = useRef(query);
+  useEffect(() => { currentQuery.current = query; setExtra([]); setMoreError(false); }, [query]);
 
   const { data, loading, error } = useJson<SearchResult>(`/api/videos?${query}`);
   const items = data ? [...data.items, ...extra] : [];
+  const hasMore = !!data && items.length < data.total;
 
   const set = (param: string, value?: string) => {
     const p = new URLSearchParams(params);
@@ -43,17 +49,34 @@ export default function Browse({ status }: { status: 'active' | 'archived' }) {
     setParams(p, { replace: true });
   };
 
-  const loadMore = async () => {
+  const loadMore = useCallback(async () => {
+    if (busy.current) return;
+    busy.current = true;
     setLoadingMore(true);
+    setMoreError(false);
+    const forQuery = query;
     try {
       const p = new URLSearchParams(query);
       p.set('offset', String(items.length));
       const r = await getJson<SearchResult>(`/api/videos?${p}`);
-      setExtra((e) => [...e, ...r.items]);
+      if (currentQuery.current === forQuery) setExtra((e) => [...e, ...r.items]);
+    } catch {
+      if (currentQuery.current === forQuery) setMoreError(true);
     } finally {
+      busy.current = false;
       setLoadingMore(false);
     }
-  };
+  }, [query, items.length]);
+
+  // Infinite scroll: load the next page when the marker below the grid comes within 600px of the viewport.
+  // The observer is recreated after every page, so a tall screen that still shows the marker keeps loading.
+  useEffect(() => {
+    const el = sentinel.current;
+    if (!el || !hasMore || loading || moreError || typeof IntersectionObserver === 'undefined') return;
+    const io = new IntersectionObserver((entries) => { if (entries.some((e) => e.isIntersecting)) void loadMore(); }, { rootMargin: '0px 0px 600px 0px' });
+    io.observe(el);
+    return () => io.disconnect();
+  }, [hasMore, loading, moreError, loadMore]);
 
   const active = FILTERS.filter((f) => params.get(f.param));
   const q = params.get('q') ?? '';
@@ -123,9 +146,14 @@ export default function Browse({ status }: { status: 'active' | 'archived' }) {
               <p>Try fewer filters or a different search. You can also <Link to="/contact?type=suggest">suggest a video</Link>.</p>
             </div>
           )}
-          {data && items.length < data.total && (
-            <div className="more"><button className="btn btn-light" onClick={loadMore} disabled={loadingMore}>{loadingMore ? 'Loading...' : 'Load more'}</button></div>
+          {hasMore && (
+            <div ref={sentinel} className="more" aria-busy={loadingMore}>
+              {moreError || typeof IntersectionObserver === 'undefined'
+                ? <>{moreError && <p className="muted">Couldn't load more videos.</p>}<button className="btn btn-light" onClick={() => void loadMore()} disabled={loadingMore}>{moreError ? 'Try again' : 'Load more'}</button></>
+                : <p className="muted loading-more" role="status">{loadingMore ? `Loading more videos... (${items.length} of ${data!.total})` : `Showing ${items.length} of ${data!.total}`}</p>}
+            </div>
           )}
+          {data && !hasMore && items.length > PAGE && <p className="muted end-of-list">That's all {data.total} videos.</p>}
         </section>
       </div>
     </div>

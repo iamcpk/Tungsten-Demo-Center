@@ -144,7 +144,14 @@ select:focus, input:focus, textarea:focus { outline: 0; border-color: var(--blue
 .active-filters { display: flex; gap: 6px; flex-wrap: wrap; flex: 1; }
 .show-filters { display: none; }
 .empty { background: #fff; border-radius: var(--radius); padding: 48px; text-align: center; box-shadow: var(--shadow); }
-.more { display: flex; justify-content: center; margin-top: 28px; }
+.more { display: flex; flex-direction: column; align-items: center; gap: 10px; margin-top: 28px; min-height: 48px; }
+.more p, .end-of-list { margin: 0; font-size: 0.9rem; text-align: center; }
+.end-of-list { margin-top: 28px; }
+.more[aria-busy="true"] .loading-more::before {
+  content: ""; display: inline-block; width: 14px; height: 14px; margin-right: 8px; vertical-align: -2px;
+  border: 2px solid var(--line); border-top-color: var(--blue); border-radius: 50%; animation: spin 0.8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
 
 /* Video page */
 .video-page { padding-top: 24px; padding-bottom: 56px; }
