@@ -42,7 +42,12 @@ jobs:
           fi
       - run: npm run build
       - name: Dependency audit (production deps, high+)
-        run: npm audit --omit=dev --audit-level=high
+        run: |
+          if ! npm audit --omit=dev --audit-level=high; then
+            npm audit --omit=dev --json > audit.json || true
+            jq -r '.vulnerabilities | to_entries[] | select(.value.severity=="high" or .value.severity=="critical") | "::error title=npm audit::\(.key) (\(.value.severity)) range \(.value.range) via \([.value.via[] | if type=="object" then .title else . end] | join("; ")) fix: \(.value.fixAvailable | if type=="object" then "\(.name)@\(.version)" else tostring end)"' audit.json
+            exit 1
+          fi
 
   infra:
     runs-on: ubuntu-latest
