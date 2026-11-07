@@ -47,6 +47,9 @@ app.use(
     },
     crossOriginEmbedderPolicy: false,
     strictTransportSecurity: { maxAge: 31536000, includeSubDomains: true },
+    // Easy Auth rejects cookie-authenticated browser POSTs that carry no Referer (403, empty body),
+    // so send it to our own origin only. Nothing is sent to other sites.
+    referrerPolicy: { policy: 'same-origin' },
   }),
 );
 app.use(compression());
