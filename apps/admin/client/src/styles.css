@@ -14,6 +14,7 @@ a { color: var(--blue-dark); }
 .muted { color: var(--gray); }
 .small { font-size: 0.85rem; }
 .hint { color: var(--gray); font-size: 0.83rem; font-weight: 400; margin: 4px 0 0; }
+.hint.warn { display: block; color: var(--red); }
 
 .shell { display: grid; grid-template-columns: 240px 1fr; min-height: 100vh; }
 .side { background: var(--navy-deep); color: #fff; display: flex; flex-direction: column; padding: 18px 14px; position: sticky; top: 0; height: 100vh; }

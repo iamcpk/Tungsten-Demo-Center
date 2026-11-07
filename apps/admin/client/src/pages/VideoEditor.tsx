@@ -84,12 +84,19 @@ export default function VideoEditor() {
 
   const set = <K extends keyof FormState>(k: K, v: FormState[K]) => setF((s) => ({ ...s, [k]: v }));
 
-  const lookupUrl = async () => {
-    if (!f.url) return;
+  const urlInput = useRef<HTMLInputElement>(null);
+  const lastLookup = useRef('');
+  /** Reads the field itself (not possibly-stale state), so a click right after typing or pasting still works. */
+  const lookupUrl = async (auto = false) => {
+    const url = (urlInput.current?.value ?? f.url).trim();
+    if (!url) { if (!auto) setLookup('Paste a Vimeo or YouTube link first.'); return; }
+    if (auto && url === lastLookup.current) return;
+    lastLookup.current = url;
+    if (url !== f.url) set('url', url);
     setLookup('Checking link...');
     try {
-      const r = await api.get<{ source: { provider: Provider }; info: { title?: string; thumbnailUrl?: string } | null }>(`/api/oembed?url=${encodeURIComponent(f.url)}`);
-      setF((s) => ({ ...s, provider: r.source.provider, title: s.title || r.info?.title || '' }));
+      const r = await api.get<{ source: { provider: Provider }; info: { title?: string; thumbnailUrl?: string } | null }>(`/api/oembed?url=${encodeURIComponent(url)}`);
+      setF((s) => ({ ...s, url, provider: r.source.provider, title: s.title || r.info?.title || '' }));
       setLookup(r.info?.title ? `Found: "${r.info.title}"` : 'Link recognised. Details are private, so fill in the title manually.');
     } catch (e) {
       setLookup((e as Error).message);
@@ -215,10 +222,10 @@ export default function VideoEditor() {
               <div className="field">
                 <span>{f.provider === 'vimeo' ? 'Vimeo URL' : 'YouTube URL'}</span>
                 <div className="inline">
-                  <input type="url" required value={f.url} onChange={(e) => set('url', e.target.value)} placeholder={f.provider === 'vimeo' ? 'https://vimeo.com/123456789' : 'https://www.youtube.com/watch?v=...'} />
-                  <button type="button" className="btn" onClick={lookupUrl}>Check</button>
+                  <input ref={urlInput} type="url" required value={f.url} onChange={(e) => set('url', e.target.value)} onBlur={() => void lookupUrl(true)} placeholder={f.provider === 'vimeo' ? 'https://vimeo.com/123456789' : 'https://www.youtube.com/watch?v=...'} />
+                  <button type="button" className="btn" onClick={() => void lookupUrl()}>Check</button>
                 </div>
-                {lookup && <span className="hint">{lookup}</span>}
+                {lookup && <span className="hint" role="status">{lookup}</span>}
               </div>
             ) : !video ? (
               <p className="hint">Create the draft first, then upload the file here. Files go straight to Azure Blob Storage, and large files (multi-GB) are fine.</p>
@@ -273,7 +280,7 @@ export default function VideoEditor() {
               <div className="field"><span>Languages</span><TagInput value={f.languages} onChange={(v) => set('languages', v)} options={tax?.languages} placeholder="Add language" allowNew={false} /></div>
             </div>
             <div className="field"><span>Keywords</span><TagInput value={f.keywords} onChange={(v) => set('keywords', v)} placeholder="Type and press Enter" /></div>
-            <p className="hint">Products, categories, industries and languages come from <a href="/taxonomy">Lists &amp; tags</a>.</p>
+            <p className="hint">Products, categories, industries and languages come from <a href="/taxonomy" target="_blank" rel="noopener">Lists &amp; tags</a> (opens in a new tab).</p>
           </section>
         </div>
 
