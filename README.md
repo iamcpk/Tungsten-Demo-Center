@@ -10,7 +10,7 @@ Video hosting and metadata platform for the Tungsten Automation Solutions Consul
 
 [![Deploy to Azure](https://aka.ms/deploytoazurebutton)](https://portal.azure.com/#create/Microsoft.Template/uri/https%3A%2F%2Fraw.githubusercontent.com%2Fiamcpk%2FTungsten-Demo-Center%2Fmain%2Finfra%2Fazuredeploy.json)
 
-1. **Publish the images once.** The `Publish container images` workflow builds `ghcr.io/iamcpk/tungsten-demo-center-{web,admin,encoder}` on every push to `main`. After the first run, open each package on GitHub (*Packages > Package settings*) and set its visibility to **Public** so Azure can pull it without credentials.
+1. **Images.** The `Publish container images` workflow builds `ghcr.io/iamcpk/tungsten-demo-center-{web,admin,encoder}` on every push to `main`. They take the public visibility of this repo, so Azure pulls them without credentials. If you fork into a private repo, set each package to **Public** under *Packages > Package settings*.
 2. **Click Deploy to Azure.** Pick a resource group and region (West Europe recommended). Every parameter has a default. `formsTo` sets the mailbox that receives form submissions.
 3. **Turn on admin sign-in.** The admin portal is deployed **locked** and returns 401 until an Entra ID app registration is connected. From a terminal signed in with `az login`, run:
    ```powershell
