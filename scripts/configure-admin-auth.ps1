@@ -9,14 +9,22 @@
   create app registrations in the tenant (Application Developer role or higher), plus
   Contributor on the resource group.
 
+  If the app registration should live in a different Entra tenant from the Azure
+  subscription (for example a test tenant), pass -EntraTenant. The script signs you in
+  to that tenant for the Entra steps, then switches back to the subscription.
+
 .EXAMPLE
   ./scripts/configure-admin-auth.ps1 -ResourceGroup rg-demo-center
+
+.EXAMPLE
+  ./scripts/configure-admin-auth.ps1 -ResourceGroup tdc-test-weu -EntraTenant contoso.onmicrosoft.com
 #>
 [CmdletBinding()]
 param(
   [Parameter(Mandatory)] [string] $ResourceGroup,
   [string] $AdminAppName,
-  [string] $DisplayName = 'Tungsten Demo Center Admin'
+  [string] $DisplayName = 'Tungsten Demo Center Admin',
+  [string] $EntraTenant
 )
 $ErrorActionPreference = 'Stop'
 
@@ -26,7 +34,7 @@ function Invoke-Az { param([string[]] $AzArgs)
   return $out
 }
 
-$tenantId = (Invoke-Az @('account', 'show', '--query', 'tenantId', '-o', 'tsv')).Trim()
+$subscriptionId = (Invoke-Az @('account', 'show', '--query', 'id', '-o', 'tsv')).Trim()
 if (-not $AdminAppName) {
   $AdminAppName = (Invoke-Az @('webapp', 'list', '-g', $ResourceGroup, '--query', "[?contains(name, '-admin-')].name | [0]", '-o', 'tsv')).Trim()
   if (-not $AdminAppName) { throw "No admin web app found in $ResourceGroup" }
@@ -34,6 +42,13 @@ if (-not $AdminAppName) {
 $hostName = (Invoke-Az @('webapp', 'show', '-g', $ResourceGroup, '-n', $AdminAppName, '--query', 'defaultHostName', '-o', 'tsv')).Trim()
 $redirect = "https://$hostName/.auth/login/aad/callback"
 Write-Host "Admin portal: https://$hostName"
+
+if ($EntraTenant) {
+  Write-Host "Sign in to the Entra tenant '$EntraTenant' (a browser window opens)..."
+  Invoke-Az @('login', '--tenant', $EntraTenant, '--allow-no-subscriptions', '--only-show-errors', '-o', 'none') | Out-Null
+}
+$tenantId = (Invoke-Az @('account', 'show', '--query', 'tenantId', '-o', 'tsv')).Trim()
+Write-Host "App registration tenant: $tenantId"
 
 # ---- App registration ----
 $appId = (Invoke-Az @('ad', 'app', 'list', '--display-name', $DisplayName, '--query', '[0].appId', '-o', 'tsv'))
@@ -80,14 +95,39 @@ if (-not ($assigned.value | Where-Object { $_.principalId -eq $me -and $_.appRol
 }
 
 # ---- Turn on Entra sign-in for the admin web app ----
-Invoke-Az @('webapp', 'auth', 'microsoft', 'update', '-g', $ResourceGroup, '-n', $AdminAppName,
-    '--client-id', $appId, '--issuer', "https://login.microsoftonline.com/$tenantId/v2.0",
-    '--allowed-audiences', $appId, "api://$appId", '--yes') | Out-Null
-Invoke-Az @('webapp', 'auth', 'update', '-g', $ResourceGroup, '-n', $AdminAppName,
-    '--enabled', 'true', '--action', 'RedirectToLoginPage', '--redirect-provider', 'azureactivedirectory') | Out-Null
+if ($EntraTenant) {
+  try { Invoke-Az @('account', 'set', '--subscription', $subscriptionId) | Out-Null }
+  catch {
+    Write-Host 'Sign in again to the tenant that holds the subscription...'
+    Invoke-Az @('login', '--only-show-errors', '-o', 'none') | Out-Null
+    Invoke-Az @('account', 'set', '--subscription', $subscriptionId) | Out-Null
+  }
+}
+# Edits authsettingsV2 through the ARM API directly, so no Azure CLI extension download is needed
+# (extension installs fail on networks that filter PyPI / package hosts).
+$authUrl = "/subscriptions/$subscriptionId/resourceGroups/$ResourceGroup/providers/Microsoft.Web/sites/$AdminAppName/config/authsettingsV2?api-version=2023-12-01"
+$auth = Invoke-Az @('rest', '--method', 'GET', '--url', $authUrl) | ConvertFrom-Json
+$p = $auth.properties
+$p.platform.enabled = $true
+$p.globalValidation.requireAuthentication = $true
+$p.globalValidation.unauthenticatedClientAction = 'RedirectToLoginPage'
+$p.globalValidation | Add-Member -Force -NotePropertyName redirectToProvider -NotePropertyValue 'azureactivedirectory'
+$aad = [ordered]@{
+  enabled      = $true
+  registration = [ordered]@{ openIdIssuer = "https://login.microsoftonline.com/$tenantId/v2.0"; clientId = $appId }
+  validation   = [ordered]@{ allowedAudiences = @($appId, "api://$appId") }
+}
+if (-not $p.identityProviders) { $p | Add-Member -Force -NotePropertyName identityProviders -NotePropertyValue ([pscustomobject]@{}) }
+$p.identityProviders | Add-Member -Force -NotePropertyName azureActiveDirectory -NotePropertyValue $aad
+$authBody = New-TemporaryFile
+@{ properties = $p } | ConvertTo-Json -Depth 20 | Set-Content $authBody -Encoding utf8
+Invoke-Az @('rest', '--method', 'PUT', '--url', $authUrl, '--body', "@$authBody", '--headers', 'Content-Type=application/json') | Out-Null
+Remove-Item $authBody -Force
+# The site keeps the previous auth mode until it restarts.
+Invoke-Az @('webapp', 'restart', '-g', $ResourceGroup, '-n', $AdminAppName) | Out-Null
 
 Write-Host ''
 Write-Host "Done. Client ID: $appId"
 Write-Host "Sign in at https://$hostName (it can take a minute to apply)."
 Write-Host 'Give colleagues access in Entra ID > Enterprise applications > Users and groups (Admin or Editor role).'
-Write-Host "Tip: pass -p entraClientId=$appId on future deployments so redeploys keep sign-in enabled."
+Write-Host "Tip: pass -p entraClientId=$appId entraTenantId=$tenantId on future deployments so redeploys keep sign-in enabled."

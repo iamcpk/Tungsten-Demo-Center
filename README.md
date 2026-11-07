@@ -16,7 +16,8 @@ Video hosting and metadata platform for the Tungsten Automation Solutions Consul
    ```powershell
    ./scripts/configure-admin-auth.ps1 -ResourceGroup <your-resource-group>
    ```
-   The script creates the app registration with `Admin` / `Editor` roles, requires role assignment, assigns you `Admin`, and enables sign-in on the admin web app.
+   The script creates the app registration with `Admin` / `Editor` roles, requires role assignment, assigns you `Admin`, and enables sign-in on the admin web app. To keep the app registration in a separate Entra tenant (for example a test tenant), add `-EntraTenant <tenant>.onmicrosoft.com`. On later redeploys, pass the `entraClientId` and `entraTenantId` values the script prints, or the admin portal goes back to locked.
+   If Cosmos DB reports no capacity in your region, redeploy with `cosmosLocation` set to another region (for example `germanywestcentral`).
 4. **Import the existing catalogue** (see [Import from iVengi](#import-from-ivengi)).
 
 The deployment outputs give you the public site URL, the admin portal URL and the media (Front Door) URL.
