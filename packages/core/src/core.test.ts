@@ -1,9 +1,17 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { parseExternalVideoUrl, embedUrl } from './sources.js';
-import { slugify, cleanHtml } from './text.js';
+import { slugify, cleanHtml, cleanText } from './text.js';
 import { searchCatalog } from './catalog.js';
 import { toPublicVideo, type Video } from './types.js';
+
+test('cleanText strips markup but keeps characters as plain text', () => {
+  assert.equal(cleanText('Customer Onboarding & Account Opening'), 'Customer Onboarding & Account Opening');
+  assert.equal(cleanText('Demo Commerciële Lening'), 'Demo Commerciële Lening');
+  assert.equal(cleanText('<b>Bold</b> &amp; <script>alert(1)</script>safe'), 'Bold & safe');
+  assert.equal(cleanText('Tom &quot;TJ&quot; O&#39;Neil &#x2014; &copy;'), 'Tom "TJ" O\'Neil — &copy;');
+  assert.equal(cleanText('abcdef', 3), 'abc');
+});
 
 test('parses Vimeo URL shapes from the iVengi export', () => {
   assert.equal(parseExternalVideoUrl('https://vimeo.com/223143246')?.externalId, '223143246');

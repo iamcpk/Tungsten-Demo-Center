@@ -25,9 +25,26 @@ export function cleanHtml(html: string): string {
   }).trim();
 }
 
-/** Plain text, no markup at all. */
+const NAMED_ENTITIES: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ' };
+
+/** Turns HTML character references back into characters. Output is plain text, never HTML. */
+export function decodeEntities(s: string): string {
+  return s.replace(/&(#\d{1,7}|#x[0-9a-f]{1,6}|[a-z]+);/gi, (m, ref: string) => {
+    if (ref[0] === '#') {
+      const cp = ref[1] === 'x' || ref[1] === 'X' ? parseInt(ref.slice(2), 16) : parseInt(ref.slice(1), 10);
+      return cp > 0 && cp <= 0x10ffff && !(cp >= 0xd800 && cp <= 0xdfff) ? String.fromCodePoint(cp) : m;
+    }
+    return NAMED_ENTITIES[ref.toLowerCase()] ?? m;
+  });
+}
+
+/**
+ * Plain text, no markup at all. sanitize-html strips the tags but HTML-encodes what is left
+ * ("&" becomes "&amp;"), so decode it again: callers render this as text (React, escapeHtml),
+ * never as HTML, so storing "&amp;" would show up literally on the site.
+ */
 export function cleanText(text: string | undefined, max = 2000): string {
-  return sanitizeHtml(text ?? '', { allowedTags: [], allowedAttributes: {} }).trim().slice(0, max);
+  return decodeEntities(sanitizeHtml(text ?? '', { allowedTags: [], allowedAttributes: {} })).trim().slice(0, max);
 }
 
 export function normaliseEmail(email: string): string {
