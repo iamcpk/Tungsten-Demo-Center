@@ -91,7 +91,7 @@ async function resolveSource(input: VideoInput['source'], existing?: VideoSource
   }
   const parsed = parseExternalVideoUrl(input.url);
   if (!parsed || parsed.provider !== input.provider) throw new HttpError(400, `That doesn't look like a valid ${input.provider === 'vimeo' ? 'Vimeo' : 'YouTube'} link`);
-  return { ...parsed, durationSec: existing?.externalId === parsed.externalId ? existing.durationSec : undefined };
+  return { ...parsed, durationSec: existing && existing.externalId === parsed.externalId ? existing.durationSec : undefined };
 }
 
 class HttpError extends Error {
@@ -239,10 +239,11 @@ api.post('/videos/:id/upload-complete', editor, wrap(async (req, res) => {
 api.post('/videos/:id/re-encode', editor, wrap(async (req, res) => {
   const v = await loadVideo(req, res);
   if (!v) return;
-  if (v.source.provider !== 'azure' || !v.source.uploadBlob) throw new HttpError(400, 'No uploaded source file to encode');
+  const uploadBlob = v.source.uploadBlob;
+  if (v.source.provider !== 'azure' || !uploadBlob) throw new HttpError(400, 'No uploaded source file to encode');
   v.source = { ...v.source, encodeState: 'queued', encodeError: undefined };
   await stores.videos.upsert(v);
-  await media.enqueueEncode({ videoId: v.id, uploadBlob: v.source.uploadBlob });
+  await media.enqueueEncode({ videoId: v.id, uploadBlob });
   res.json(v);
 }));
 

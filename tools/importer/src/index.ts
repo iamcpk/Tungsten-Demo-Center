@@ -180,7 +180,8 @@ async function main() {
     for (const [descCol, urlCol, nameCol] of ATTACH) {
       const url = text(row.getCell(urlCol)).trim();
       if (!url) continue;
-      if (!isHttpUrl(url)) { note(legacyId, title, `attachment cell is not a URL (misaligned row?): "${url.slice(0, 60)}"`); continue; }
+      const preview = url.slice(0, 60);
+      if (!isHttpUrl(url)) { note(legacyId, title, `attachment cell is not a URL (misaligned row?): "${preview}"`); continue; }
       const fileName = decodeURIComponent(url.split('/').pop() ?? 'file');
       const att: Attachment = {
         id: stableId(`${legacyId}:${urlCol}`),
