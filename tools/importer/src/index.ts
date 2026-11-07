@@ -5,7 +5,9 @@
  *   npm run import -- --file ... --write                                           (local JSON store in ./data)
  *   COSMOS_ENDPOINT=... STORAGE_ACCOUNT=... MEDIA_BASE_URL=... npm run import -- --file ... --write   (Azure)
  *
- * Options: --no-files (skip copying thumbnails/attachments), --limit N, --report path.
+ * Options: --no-files (skip copying thumbnails/attachments), --limit N, --report path,
+ *          --blob <name> (read the export from the private uploads container; used by the Azure job),
+ *          --legacy-site https://www.tungstendemocenter.com (keep the old page slugs and use the real download links).
  * Re-running is safe: video ids are derived from the iVengi contentindex, so records are updated in place.
  * Admin edits made in the new platform after import WILL be overwritten for re-imported rows.
  */
@@ -34,6 +36,8 @@ const limit = Number(arg('limit') ?? Infinity);
 const userCwd = process.env.INIT_CWD ?? process.cwd();
 const inputFile = file ? path.resolve(userCwd, file) : undefined;
 const reportArg = arg('report');
+/** Live iVengi site to read slugs and real download links from, for example https://www.tungstendemocenter.com */
+const legacySite = arg('legacy-site')?.replace(/\/+$/, '');
 
 // Hosts the importer may download from. Values in the spreadsheet never choose the host.
 const DOWNLOAD_HOSTS = new Set(['www.tungstendemocenter.com', 'tungstendemocenter.com', 'i.vimeocdn.com']);
@@ -75,13 +79,59 @@ function encodeUrl(u: string) {
   return encodeURI(decodeURI(u.trim()));
 }
 
-async function download(url: string): Promise<{ data: Buffer; type?: string } | undefined> {
+/** fetch() restricted to the allow-listed hosts, including after redirects. */
+async function fetchAllowed(url: string, timeoutMs = 120_000): Promise<Response> {
   const u = new URL(encodeUrl(url));
   if (u.protocol !== 'https:' || !DOWNLOAD_HOSTS.has(u.hostname)) throw new Error(`host not allowed: ${u.hostname}`);
-  const res = await fetch(u, { signal: AbortSignal.timeout(120_000), redirect: 'follow' });
+  const res = await fetch(u, { signal: AbortSignal.timeout(timeoutMs), redirect: 'follow' });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const final = new URL(res.url);
   if (!DOWNLOAD_HOSTS.has(final.hostname)) throw new Error(`redirected to disallowed host ${final.hostname}`);
+  return res;
+}
+
+// ---------- live iVengi site: slugs and real download links ----------
+// The export has neither the page slug nor the real download URL (iVengi adds a random token to file names),
+// so both are read from the live site. Keeping the old slug means /items/{slug} redirects land on the same video.
+const LEGACY_LIST_PATH = '/IManager/Content/71293/Yq7h/mt32557/mp0';
+const SLUG_RE = /^\/items\/([a-z0-9][a-z0-9-]{0,150})$/i;
+
+async function fetchLegacySlugs(origin: string): Promise<Map<string, string>> {
+  const slugs = new Map<string, string>();
+  for (let offset = 0; offset < 5000; offset += 100) {
+    const res = await fetchAllowed(`${origin}${LEGACY_LIST_PATH}?offset=${offset}&limit=100`, 60_000);
+    const body = (await res.json()) as Array<{ Hits?: { Total: number; ContentIndexes: string[] }; Items?: Array<{ link?: string }> }>;
+    const hits = body.find((x) => x.Hits)?.Hits;
+    const items = body.find((x) => x.Items)?.Items ?? [];
+    if (!hits || hits.ContentIndexes.length !== items.length) throw new Error('Unexpected iVengi listing format');
+    hits.ContentIndexes.forEach((id, i) => {
+      const m = SLUG_RE.exec(items[i]?.link ?? '');
+      if (m) slugs.set(String(id), m[1]!.toLowerCase());
+    });
+    if (!hits.ContentIndexes.length || offset + hits.ContentIndexes.length >= hits.Total) break;
+  }
+  return slugs;
+}
+
+/** Comparable form of a file name: iVengi's "{n}_{id}_{token}_" prefix removed, only letters and digits kept. */
+function fileKey(name: string): string {
+  let decoded = name;
+  try { decoded = decodeURIComponent(name); } catch { /* keep as is */ }
+  return decoded.replace(/^\d+_\d+_[A-Za-z0-9]{2,8}_/, '').toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+async function fetchLegacyDownloads(origin: string, slug: string, legacyId: string): Promise<string[]> {
+  const html = await (await fetchAllowed(`${origin}/items/${slug}`, 60_000)).text();
+  const links = new Set<string>();
+  for (const m of html.matchAll(/href="([^"]*\/IManager\/Download\/[^"]+)"/gi)) {
+    const href = new URL(m[1]!.replace(/&amp;/g, '&'), origin).toString();
+    if (href.includes(`/${legacyId}/`)) links.add(href);
+  }
+  return [...links];
+}
+
+async function download(url: string): Promise<{ data: Buffer; type?: string } | undefined> {
+  const res = await fetchAllowed(url);
   const len = Number(res.headers.get('content-length') ?? 0);
   if (len > MAX_DOWNLOAD) throw new Error('file too large');
   const data = Buffer.from(await res.arrayBuffer());
@@ -109,6 +159,9 @@ async function main() {
 
   const existing = new Map((await stores.videos.list()).map((v) => [v.id, v]));
   const slugs = new Set([...existing.values()].map((v) => v.slug));
+  const legacySlugs = legacySite ? await fetchLegacySlugs(legacySite) : new Map<string, string>();
+  if (legacySite) console.info(`Live site: ${legacySlugs.size} slugs read from ${legacySite}`);
+  for (const s of legacySlugs.values()) slugs.add(s);
   const videos: Video[] = [];
   const tax: Record<keyof Omit<Taxonomy, 'id' | 'updatedAt'>, Map<string, number>> = {
     products: new Map(), verticals: new Map(), authors: new Map(), languages: new Map(), categories: new Map(),
@@ -155,7 +208,7 @@ async function main() {
     const businessLines = parseMulti(c('type')).filter((b): b is BusinessLine => b === 'IA' || b === 'PA');
     const v: Video = {
       id,
-      slug: prev?.slug ?? (() => { const base = slugify(title); let s = base; for (let i = 2; slugs.has(s); i++) s = `${base}-${i}`; slugs.add(s); return s; })(),
+      slug: legacySlugs.get(legacyId) ?? prev?.slug ?? (() => { const base = slugify(title); let s = base; for (let i = 2; slugs.has(s); i++) s = `${base}-${i}`; slugs.add(s); return s; })(),
       title,
       pageTitle: cleanText(c('pageTitle'), 200) || undefined,
       shortDescription: cleanText(c('shortDescription') || c('pageDescription'), 600),
@@ -210,6 +263,25 @@ async function main() {
       };
       v.attachments.push(att);
     }
+    if (legacySite && !legacySlugs.has(legacyId)) note(legacyId, title, 'not found on the live site: kept a generated slug, so its old /items/ link will not redirect');
+
+    // The export's attachment URLs are not the real ones; swap in the live site's links.
+    const liveSlug = legacySlugs.get(legacyId);
+    if (liveSlug && v.attachments.length) {
+      let live: string[] = [];
+      try { live = await fetchLegacyDownloads(legacySite!, liveSlug, legacyId); }
+      catch (e) { note(legacyId, title, `could not read live page for attachments: ${(e as Error).message}`); }
+      const unused = new Set(live);
+      for (const a of v.attachments) {
+        const want = fileKey(a.url!.split('/').pop() ?? '');
+        const hit = [...unused].find((l) => fileKey(l.split('/').pop() ?? '') === want);
+        if (hit) { a.url = hit; unused.delete(hit); }
+      }
+      // Anything left unmatched: pair by position when the counts agree, otherwise report it.
+      const missing = v.attachments.filter((a) => !live.includes(a.url!));
+      if (missing.length && missing.length === unused.size) missing.forEach((a, i) => { a.url = [...unused][i]; });
+      else for (const a of missing) note(legacyId, title, `no matching download on the live page for attachment (${a.name})`);
+    }
     videos.push(v);
   }
 
@@ -233,7 +305,7 @@ async function main() {
         try {
           const f = await download(a.url);
           if (f) {
-            const name = safeBlobName(decodeURIComponent(a.url.split('/').pop() ?? a.name));
+            const name = safeBlobName(decodeURIComponent(a.url.split('/').pop() ?? a.name).replace(/^\d+_\d+_[A-Za-z0-9]{2,8}_/, ''));
             a.path = await media.putMedia(`attachments/${v.id}/${name}`, f.data, a.contentType ?? f.type ?? 'application/octet-stream');
             a.sizeBytes = f.data.length;
             a.url = undefined;
