@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { excelDate, isHttpUrl, parseMulti, stableId } from './parse.js';
+import { excelDate, isHttpUrl, legacyPublishDate, parseMulti, stableId } from './parse.js';
 
 test('parseMulti untangles the cumulative iVengi format', () => {
   const raw = 'Healthcare,Healthcare";"Financial Services,Healthcare";"Financial Services";"Manufacturing';
@@ -14,6 +14,16 @@ test('parseMulti untangles the cumulative iVengi format', () => {
 test('excelDate converts serial + time', () => {
   assert.equal(excelDate('42912', '16:47'), '2017-06-26T16:47:00.000Z');
   assert.equal(excelDate('', ''), undefined);
+});
+
+test('legacyPublishDate reads normal and column-shifted iVengi rows', () => {
+  assert.equal(legacyPublishDate(42912, '16:47', ''), '2017-06-26T16:47:00.000Z');
+  // Shifted row seen in the Nov 7, 2026 export: date in Date:_time (dd-mm-yyyy), time fraction in the custom column.
+  assert.equal(legacyPublishDate('', '04-12-2017', '0.8979166666666667'), '2017-12-04T21:33:00.000Z');
+  assert.equal(legacyPublishDate(null, '04-12-2017', ''), '2017-12-04T00:00:00.000Z');
+  // A bare time fraction is not a date (it used to come out as Dec 30, 1899).
+  assert.equal(legacyPublishDate(0.8979166666666667, '', ''), undefined);
+  assert.equal(legacyPublishDate('', '', '0.8979166666666667'), undefined);
 });
 
 test('stableId is deterministic and uuid shaped', () => {

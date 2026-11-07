@@ -34,6 +34,26 @@ export function excelDate(day: unknown, time: unknown): string | undefined {
   return new Date(base).toISOString();
 }
 
+/**
+ * Publish date from the iVengi Date:_date, Date:_time and Date:_date_time_custom cells.
+ * Normally Date:_date is an Excel serial and Date:_time is "HH:mm". Some rows are shifted one column,
+ * leaving the date in Date:_time as "dd-mm-yyyy" (iVengi's display format) and the time in
+ * Date:_date_time_custom as a fraction of a day. Anything outside 2000-2099 is treated as no date.
+ */
+export function legacyPublishDate(day: unknown, time: unknown, custom: unknown): string | undefined {
+  const plausible = (iso: string | undefined) => (iso && iso >= '2000' && iso < '2100' ? iso : undefined);
+  const direct = plausible(excelDate(day, time));
+  if (direct) return direct;
+  const shifted = /^(\d{1,2})-(\d{1,2})-(\d{4})$/.exec(String(time ?? '').trim());
+  if (shifted) {
+    let ms = Date.UTC(Number(shifted[3]), Number(shifted[2]) - 1, Number(shifted[1]));
+    const frac = Number(custom);
+    if (frac > 0 && frac < 1) ms += Math.round(frac * 86400) * 1000;
+    return plausible(new Date(ms).toISOString());
+  }
+  return undefined;
+}
+
 /** Removes iVengi/Excel artefacts from rich text. */
 export function cleanLegacyHtml(raw: unknown): string {
   return String(raw ?? '').replace(/_x000D_/g, '').replace(/\r/g, '').trim();

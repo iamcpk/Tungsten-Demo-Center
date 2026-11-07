@@ -19,7 +19,7 @@ import {
   ATTACHMENT_TYPES, BLOB_CONTAINERS, cleanHtml, cleanText, createMedia, createStores, fetchOEmbed, loadConfig, parseExternalVideoUrl,
   safeBlobName, slugify, type Attachment, type BusinessLine, type Taxonomy, type Video, type VideoSource,
 } from '@tdc/core';
-import { cleanLegacyHtml, excelDate, isHttpUrl, parseKeywords, parseMulti, stableId } from './parse.js';
+import { cleanLegacyHtml, excelDate, isHttpUrl, legacyPublishDate, parseKeywords, parseMulti, stableId } from './parse.js';
 
 // ---------- arguments ----------
 const argv = process.argv.slice(2);
@@ -194,14 +194,11 @@ async function main() {
 
     // Publish date drives "latest first" on the site, so it comes from the iVengi Date:_date column
     // (+ Date:_time). Undated rows must not fall back to "now", which would push them to the top.
-    let publishedAt = excelDate(row.getCell(COL.date[0]).value ?? c('date'), c('time'));
+    const dayCell = row.getCell(COL.date[0]).value ?? c('date');
+    let publishedAt = legacyPublishDate(dayCell, c('time'), c('dateCustom'));
+    if (publishedAt && !excelDate(dayCell, c('time'))) note(legacyId, title, `Date:_date empty (row shifted): used Date:_time "${c('time')}" = ${publishedAt.slice(0, 16)}`);
     if (!publishedAt) {
-      const custom = Date.parse(c('dateCustom'));
-      publishedAt = Number.isNaN(custom) ? undefined : new Date(custom).toISOString();
-      if (publishedAt) note(legacyId, title, 'Date:_date empty: used Date:_date_time_custom');
-    }
-    if (!publishedAt) {
-      publishedAt = prev?.publishedAt ?? UNDATED;
+      publishedAt = UNDATED;
       note(legacyId, title, `no publish date in the export: set to ${publishedAt.slice(0, 10)} so it sorts after dated videos`);
     }
 
