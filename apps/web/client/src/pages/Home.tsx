@@ -19,7 +19,7 @@ export default function Home() {
       <section className="hero">
         <div className="wrap hero-inner">
           <p className="eyebrow">Solutions Consulting</p>
-          <h1>See intelligent automation <span className="accent">in action</span></h1>
+          <h1>See intelligent automation<br /><span className="accent">in action</span></h1>
           <p className="lead">Technical demonstrations, product walk-throughs and solution videos across the Tungsten Automation portfolio.</p>
           <SearchBox large />
           <div className="hero-lines">
