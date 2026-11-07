@@ -19,12 +19,12 @@ export const videoInputSchema = z.object({
   categories: tagList,
   keywords: tagList,
   featured: z.boolean().default(false),
-  publishedAt: z.string().datetime().optional(),
+  publishedAt: z.iso.datetime().optional(),
   internalNotes: z.string().max(4000).optional(),
   /** Vimeo/YouTube link, or "azure" to use an uploaded file. */
   source: z.discriminatedUnion('provider', [
-    z.object({ provider: z.literal('vimeo'), url: z.string().url().max(500) }),
-    z.object({ provider: z.literal('youtube'), url: z.string().url().max(500) }),
+    z.object({ provider: z.literal('vimeo'), url: z.url({ protocol: /^https?$/ }).max(500) }),
+    z.object({ provider: z.literal('youtube'), url: z.url({ protocol: /^https?$/ }).max(500) }),
     z.object({ provider: z.literal('azure') }),
   ]),
 });
@@ -43,7 +43,7 @@ const honeypot = z.string().max(0, 'Spam detected').optional();
 export const subscribeSchema = z.object({
   email: z.string().trim().email().max(254),
   products: z.array(z.string().max(80)).max(50).default([]),
-  consent: z.literal(true, { errorMap: () => ({ message: 'Consent is required' }) }),
+  consent: z.literal(true, { error: 'Consent is required' }),
   website: honeypot,
 });
 
