@@ -26,6 +26,10 @@ export interface MediaService {
   /** Short-lived read-only SAS URL (used by the encoder to stream the source). */
   createReadUrl(container: BlobContainerName, name: string, minutes?: number): Promise<string>;
   deleteBlob(container: BlobContainerName, name: string): Promise<void>;
+  /** Read a whole blob (used by the importer to fetch the export from the private uploads container). */
+  readBlob(container: BlobContainerName, name: string): Promise<Buffer>;
+  /** Write a blob with no public caching headers (private containers, for example import reports). */
+  writeBlob(container: BlobContainerName, name: string, data: Buffer, contentType: string): Promise<void>;
   enqueueEncode(msg: EncodeJobMessage): Promise<void>;
   publicUrl(relPath: string): string;
 }
@@ -111,6 +115,12 @@ class AzureMedia implements MediaService {
   async deleteBlob(container: BlobContainerName, name: string) {
     await this.block(container, name).deleteIfExists({ deleteSnapshots: 'include' });
   }
+  async readBlob(container: BlobContainerName, name: string) {
+    return this.block(container, name).downloadToBuffer();
+  }
+  async writeBlob(container: BlobContainerName, name: string, data: Buffer, contentType: string) {
+    await this.block(container, name).uploadData(data, { blobHTTPHeaders: { blobContentType: contentType, blobCacheControl: 'no-store' } });
+  }
   async enqueueEncode(msg: EncodeJobMessage) {
     await this.queue.sendMessage(Buffer.from(JSON.stringify(msg)).toString('base64'));
   }
@@ -149,6 +159,12 @@ class LocalMedia implements MediaService {
   }
   async deleteBlob(container: BlobContainerName, name: string) {
     await fs.rm(this.file(container, name), { force: true });
+  }
+  async readBlob(container: BlobContainerName, name: string) {
+    return fs.readFile(this.file(container, name));
+  }
+  async writeBlob(container: BlobContainerName, name: string, data: Buffer) {
+    await this.writeLocal(container, name, data);
   }
   async enqueueEncode(msg: EncodeJobMessage) {
     const p = path.resolve(this.config.localDataDir, 'encode-queue.jsonl');

@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.48.1.52935",
-      "templateHash": "17095200572932352541"
+      "templateHash": "15251236241748831111"
     }
   },
   "parameters": {
@@ -59,6 +59,10 @@
       "metadata": {
         "description": "Container image for the HLS encoder job."
       }
+    },
+    "importerImage": {
+      "type": "string",
+      "defaultValue": "ghcr.io/iamcpk/tungsten-demo-center-importer:latest"
     },
     "entraTenantId": {
       "type": "string",
@@ -140,6 +144,7 @@
       "admin": "[format('{0}-admin-{1}', parameters('namePrefix'), variables('short'))]",
       "cae": "[format('{0}-cae-{1}', parameters('namePrefix'), variables('short'))]",
       "job": "[format('{0}-encoder-{1}', parameters('namePrefix'), variables('short'))]",
+      "importJob": "[format('{0}-import-{1}', parameters('namePrefix'), variables('short'))]",
       "afd": "[format('{0}-afd-{1}', parameters('namePrefix'), variables('short'))]",
       "acs": "[format('{0}-acs-{1}', parameters('namePrefix'), variables('short'))]",
       "email": "[format('{0}-email-{1}', parameters('namePrefix'), variables('short'))]"
@@ -1092,6 +1097,81 @@
         "[resourceId('Microsoft.Storage/storageAccounts/queueServices/queues', variables('names').storage, 'default', variables('encodeQueue'))]",
         "[resourceId('Microsoft.Storage/storageAccounts', variables('names').storage)]"
       ]
+    },
+    {
+      "type": "Microsoft.App/jobs",
+      "apiVersion": "2025-01-01",
+      "name": "[variables('names').importJob]",
+      "location": "[parameters('location')]",
+      "identity": {
+        "type": "UserAssigned",
+        "userAssignedIdentities": {
+          "[format('{0}', resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-id-admin-{1}', parameters('namePrefix'), variables('short'))))]": {}
+        }
+      },
+      "properties": {
+        "environmentId": "[resourceId('Microsoft.App/managedEnvironments', variables('names').cae)]",
+        "workloadProfileName": "Consumption",
+        "configuration": {
+          "triggerType": "Manual",
+          "replicaTimeout": 10800,
+          "replicaRetryLimit": 0,
+          "manualTriggerConfig": {
+            "parallelism": 1,
+            "replicaCompletionCount": 1
+          }
+        },
+        "template": {
+          "containers": [
+            {
+              "name": "importer",
+              "image": "[parameters('importerImage')]",
+              "args": [
+                "--help"
+              ],
+              "resources": {
+                "cpu": "[json('1.0')]",
+                "memory": "2Gi"
+              },
+              "env": [
+                {
+                  "name": "DATA_MODE",
+                  "value": "cosmos"
+                },
+                {
+                  "name": "COSMOS_ENDPOINT",
+                  "value": "[reference(resourceId('Microsoft.DocumentDB/databaseAccounts', variables('names').cosmos), '2024-11-15').documentEndpoint]"
+                },
+                {
+                  "name": "COSMOS_DATABASE",
+                  "value": "[variables('dbName')]"
+                },
+                {
+                  "name": "STORAGE_ACCOUNT",
+                  "value": "[variables('names').storage]"
+                },
+                {
+                  "name": "MEDIA_BASE_URL",
+                  "value": "[format('https://{0}', reference(resourceId('Microsoft.Cdn/profiles/afdEndpoints', variables('names').afd, format('{0}-media-{1}', parameters('namePrefix'), variables('short'))), '2024-02-01').hostName)]"
+                },
+                {
+                  "name": "AZURE_CLIENT_ID",
+                  "value": "[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-id-admin-{1}', parameters('namePrefix'), variables('short'))), '2023-01-31').clientId]"
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "dependsOn": [
+        "[extensionResourceId(resourceId('Microsoft.Storage/storageAccounts', variables('names').storage), 'Microsoft.Authorization/roleAssignments', guid(resourceId('Microsoft.Storage/storageAccounts', variables('names').storage), resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-id-admin-{1}', parameters('namePrefix'), variables('short'))), variables('roles').blobDataContributor))]",
+        "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-id-admin-{1}', parameters('namePrefix'), variables('short')))]",
+        "[resourceId('Microsoft.Cdn/profiles/afdEndpoints', variables('names').afd, format('{0}-media-{1}', parameters('namePrefix'), variables('short')))]",
+        "[resourceId('Microsoft.App/managedEnvironments', variables('names').cae)]",
+        "[resourceId('Microsoft.DocumentDB/databaseAccounts', variables('names').cosmos)]",
+        "[resourceId('Microsoft.DocumentDB/databaseAccounts/sqlRoleAssignments', variables('names').cosmos, guid(resourceId('Microsoft.DocumentDB/databaseAccounts', variables('names').cosmos), resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-id-admin-{1}', parameters('namePrefix'), variables('short'))), 'contributor'))]",
+        "[resourceId('Microsoft.Storage/storageAccounts', variables('names').storage)]"
+      ]
     }
   ],
   "outputs": {
@@ -1122,6 +1202,10 @@
     "cosmosEndpoint": {
       "type": "string",
       "value": "[reference(resourceId('Microsoft.DocumentDB/databaseAccounts', variables('names').cosmos), '2024-11-15').documentEndpoint]"
+    },
+    "importJobName": {
+      "type": "string",
+      "value": "[variables('names').importJob]"
     },
     "mailFrom": {
       "type": "string",

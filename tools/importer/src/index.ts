@@ -14,7 +14,7 @@ import type { Cell } from 'exceljs';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import {
-  ATTACHMENT_TYPES, cleanHtml, cleanText, createMedia, createStores, fetchOEmbed, loadConfig, parseExternalVideoUrl,
+  ATTACHMENT_TYPES, BLOB_CONTAINERS, cleanHtml, cleanText, createMedia, createStores, fetchOEmbed, loadConfig, parseExternalVideoUrl,
   safeBlobName, slugify, type Attachment, type BusinessLine, type Taxonomy, type Video, type VideoSource,
 } from '@tdc/core';
 import { cleanLegacyHtml, excelDate, isHttpUrl, parseKeywords, parseMulti, stableId } from './parse.js';
@@ -24,13 +24,15 @@ const argv = process.argv.slice(2);
 const arg = (name: string) => { const i = argv.indexOf(`--${name}`); return i >= 0 ? argv[i + 1] : undefined; };
 const flag = (name: string) => argv.includes(`--${name}`);
 const file = arg('file');
-if (!file) { console.error('Usage: npm run import -- --file <export.xlsx> [--write] [--no-files] [--limit N]'); process.exit(2); }
+/** Name of the export in the private "uploads" container (used when the importer runs as an Azure job). */
+const blobFile = arg('blob');
+if (!file && !blobFile) { console.error('Usage: npm run import -- (--file <export.xlsx> | --blob <name in uploads>) [--write] [--no-files] [--limit N]'); process.exit(2); }
 const write = flag('write');
 const copyFiles = !flag('no-files');
 const limit = Number(arg('limit') ?? Infinity);
 // npm runs workspace scripts inside tools/importer; resolve paths against where the user ran the command.
 const userCwd = process.env.INIT_CWD ?? process.cwd();
-const inputFile = path.resolve(userCwd, file);
+const inputFile = file ? path.resolve(userCwd, file) : undefined;
 const reportArg = arg('report');
 
 // Hosts the importer may download from. Values in the spreadsheet never choose the host.
@@ -92,11 +94,12 @@ async function main() {
   const stores = createStores(config);
   const media = createMedia(config);
   const reportPath = reportArg ? path.resolve(userCwd, reportArg) : path.resolve(config.localDataDir, 'import-report.json');
-  console.info(`Reading ${inputFile}`);
+  console.info(`Reading ${inputFile ?? `uploads/${blobFile}`}`);
   console.info(write ? `Target: ${config.dataMode === 'cosmos' ? `Cosmos DB ${config.cosmosEndpoint}` : `local store in ./${config.localDataDir}`}, media: ${media.mode}` : 'DRY RUN (add --write to save)');
 
   const wb = new ExcelJS.Workbook();
-  await wb.xlsx.readFile(inputFile);
+  if (inputFile) await wb.xlsx.readFile(inputFile);
+  else await wb.xlsx.load((await media.readBlob(BLOB_CONTAINERS.uploads, blobFile!)) as unknown as ArrayBuffer);
   const ws = wb.worksheets[0]!;
   const header = ws.getRow(1);
   for (const [key, [col, prefix]] of Object.entries(COL)) {
@@ -267,10 +270,20 @@ async function main() {
     products: tax.products.size, authors: tax.authors.size, verticals: tax.verticals.size, languages: tax.languages.size, categories: tax.categories.size,
     issues: issues.length,
   };
-  await fs.mkdir(path.dirname(reportPath), { recursive: true });
-  await fs.writeFile(reportPath, JSON.stringify({ generatedAt: now, written: write, summary, issues }, null, 2));
-  console.table(summary);
-  console.info(`${issues.length} issue(s) written to ${reportPath}${write ? '' : '. Nothing was saved (dry run).'}`);
+  const report = JSON.stringify({ generatedAt: now, written: write, summary, issues }, null, 2);
+  let reportWhere: string;
+  if (blobFile) {
+    // Running as a job: keep the report (it can contain internal notes' context) in the private uploads container.
+    const name = `imports/report-${now.replace(/[:.]/g, '-')}${write ? '' : '-dryrun'}.json`;
+    await media.writeBlob(BLOB_CONTAINERS.uploads, name, Buffer.from(report), 'application/json');
+    reportWhere = `uploads/${name}`;
+  } else {
+    await fs.mkdir(path.dirname(reportPath), { recursive: true });
+    await fs.writeFile(reportPath, report);
+    reportWhere = reportPath;
+  }
+  console.info(JSON.stringify(summary));
+  console.info(`${issues.length} issue(s) written to ${reportWhere}${write ? '' : '. Nothing was saved (dry run).'}`);
 }
 
 main().catch((e) => { console.error(e); process.exit(1); });

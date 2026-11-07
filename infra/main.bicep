@@ -28,6 +28,7 @@ param adminImage string = 'ghcr.io/iamcpk/tungsten-demo-center-admin:latest'
 
 @description('Container image for the HLS encoder job.')
 param encoderImage string = 'ghcr.io/iamcpk/tungsten-demo-center-encoder:latest'
+param importerImage string = 'ghcr.io/iamcpk/tungsten-demo-center-importer:latest'
 
 @description('Entra ID tenant for admin sign-in. Defaults to the tenant you deploy from.')
 param entraTenantId string = subscription().tenantId
@@ -63,6 +64,7 @@ var names = {
   admin: '${namePrefix}-admin-${short}'
   cae: '${namePrefix}-cae-${short}'
   job: '${namePrefix}-encoder-${short}'
+  importJob: '${namePrefix}-import-${short}'
   afd: '${namePrefix}-afd-${short}'
   acs: '${namePrefix}-acs-${short}'
   email: '${namePrefix}-email-${short}'
@@ -583,6 +585,46 @@ resource encoderJob 'Microsoft.App/jobs@2025-01-01' = {
   dependsOn: [encoderBlob, encoderQueue, encoderQueueRead, cosmosEncoder, queue]
 }
 
+// ---------------- iVengi importer (Container Apps Job, started manually) ----------------
+// Reads the Excel export from the private uploads container. Runs as the admin identity, which already
+// has Cosmos DB and Blob write access. Start it with arguments, for example:
+//   --blob ivengi-export.xlsx            (dry run, report saved to uploads/imports/)
+//   --blob ivengi-export.xlsx --write    (import)
+resource importJob 'Microsoft.App/jobs@2025-01-01' = {
+  name: names.importJob
+  location: location
+  identity: { type: 'UserAssigned', userAssignedIdentities: { '${adminId.id}': {} } }
+  properties: {
+    environmentId: cae.id
+    workloadProfileName: 'Consumption'
+    configuration: {
+      triggerType: 'Manual'
+      replicaTimeout: 10800 // 3 hours
+      replicaRetryLimit: 0
+      manualTriggerConfig: { parallelism: 1, replicaCompletionCount: 1 }
+    }
+    template: {
+      containers: [
+        {
+          name: 'importer'
+          image: importerImage
+          args: ['--help']
+          resources: { cpu: json('1.0'), memory: '2Gi' }
+          env: [
+            { name: 'DATA_MODE', value: 'cosmos' }
+            { name: 'COSMOS_ENDPOINT', value: cosmos.properties.documentEndpoint }
+            { name: 'COSMOS_DATABASE', value: dbName }
+            { name: 'STORAGE_ACCOUNT', value: storage.name }
+            { name: 'MEDIA_BASE_URL', value: mediaBaseUrl }
+            { name: 'AZURE_CLIENT_ID', value: adminId.properties.clientId }
+          ]
+        }
+      ]
+    }
+  }
+  dependsOn: [cosmosAdmin, adminBlob]
+}
+
 // ---------------- Outputs ----------------
 output publicSiteUrl string = webUrl
 output adminPortalUrl string = adminUrl
@@ -591,4 +633,5 @@ output adminWebAppName string = adminSite.name
 output mediaBaseUrl string = mediaBaseUrl
 output storageAccount string = storage.name
 output cosmosEndpoint string = cosmos.properties.documentEndpoint
+output importJobName string = importJob.name
 output mailFrom string = 'DoNotReply@${emailDomain.properties.mailFromSenderDomain}'
