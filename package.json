@@ -18,7 +18,7 @@
   "scripts": {
     "build": "npm run build -w @tdc/core && npm run build -w @tdc/web -w @tdc/admin -w @tdc/encoder -w @tdc/importer",
     "typecheck": "npm run build -w @tdc/core && npm run typecheck --workspaces --if-present",
-    "test": "npm run build -w @tdc/core && npm test --workspaces --if-present",
+    "test": "npm run build && npm test --workspaces --if-present",
     "dev:web": "npm run dev -w @tdc/web",
     "dev:admin": "npm run dev -w @tdc/admin",
     "import": "npm run start -w @tdc/importer --"

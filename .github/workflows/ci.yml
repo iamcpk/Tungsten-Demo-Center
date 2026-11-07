@@ -32,7 +32,14 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run typecheck
-      - run: npm test
+      - name: Unit tests
+        run: |
+          set -o pipefail
+          if ! npm test 2>&1 | tee test.log; then
+            # Surface failures as annotations so they show on the run and on pull requests
+            grep -E "not ok|Error|expected|actual|failureType|location:" test.log | head -60 | while IFS= read -r l; do echo "::error title=Test failure::$l"; done
+            exit 1
+          fi
       - run: npm run build
       - name: Dependency audit (production deps, high+)
         run: npm audit --omit=dev --audit-level=high
