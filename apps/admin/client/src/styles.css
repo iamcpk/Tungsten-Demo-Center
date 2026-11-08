@@ -124,9 +124,10 @@ h1 .tag { vertical-align: middle; font-size: 0.75rem; margin-left: 6px; }
 
 @media (max-width: 1100px) { .editor { grid-template-columns: 1fr; } }
 @media (max-width: 800px) {
-  .shell { grid-template-columns: 1fr; }
-  .side { position: static; height: auto; }
-  .side nav { grid-auto-flow: column; overflow-x: auto; }
+  .shell { grid-template-columns: minmax(0, 1fr); }
+  .side { position: static; height: auto; min-width: 0; }
+  .content { min-width: 0; }
+  .side nav { display: flex; flex-wrap: wrap; gap: 4px; }
   .side-user { display: none; }
   .content { padding: 18px 16px 48px; }
   .row2 { grid-template-columns: 1fr; }
