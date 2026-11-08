@@ -116,6 +116,9 @@ h1 .tag { vertical-align: middle; font-size: 0.75rem; margin-left: 6px; }
 .alert strong { display: inline; }
 .tag-archived, .tag-unsubscribed { background: #f0f0f0; color: var(--gray); }
 .tag-feat { background: var(--light-blue); color: var(--navy); }
+.tag-home { background: var(--navy); color: #fff; }
+.feat-note { margin: -4px 0 14px; }
+.feat-note .tag { margin-left: 2px; }
 
 .submission header { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
 .submission .push { margin-left: auto; }

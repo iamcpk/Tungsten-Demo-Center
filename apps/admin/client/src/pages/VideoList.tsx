@@ -5,6 +5,9 @@ import { useMe } from '../App';
 
 type SortKey = 'published-desc' | 'published-asc' | 'updated-desc';
 
+/** How many featured videos the public home page displays (apps/web/client/src/pages/Home.tsx). */
+const HOME_FEATURED_SLOTS = 4;
+
 const STATE_LABEL: Record<string, string> = { 'awaiting-upload': 'Needs upload', queued: 'Queued', encoding: 'Encoding', ready: 'Ready', failed: 'Encode failed' };
 
 export default function VideoList() {
@@ -14,15 +17,26 @@ export default function VideoList() {
   const [q, setQ] = useState('');
   const [status, setStatus] = useState('');
   const [provider, setProvider] = useState('');
+  const [featured, setFeatured] = useState<'' | 'yes' | 'no'>('');
   const [sort, setSort] = useState<SortKey>('published-desc');
 
   useEffect(() => { api.get<Video[]>('/api/videos').then(setVideos).catch((e: Error) => setError(e.message)); }, []);
+
+  // Mirrors the public home page: it shows the newest active featured videos, up to HOME_FEATURED_SLOTS.
+  const onHome = useMemo(() => new Set((videos ?? [])
+    .filter((v) => v.featured && v.status === 'active')
+    .sort((a, b) => b.publishedAt.localeCompare(a.publishedAt))
+    .slice(0, HOME_FEATURED_SLOTS)
+    .map((v) => v.id)), [videos]);
+
+  const featuredCount = useMemo(() => (videos ?? []).filter((v) => v.featured).length, [videos]);
 
   const filtered = useMemo(() => {
     const t = q.trim().toLowerCase();
     const rows = (videos ?? []).filter((v) =>
       (!status || v.status === status) &&
       (!provider || v.source.provider === provider) &&
+      (!featured || v.featured === (featured === 'yes')) &&
       (!t || [v.title, ...v.products, ...v.authors, v.slug].join(' ').toLowerCase().includes(t)));
     // ISO timestamps sort correctly as strings. Ties fall back to title so the order is stable.
     const by = (a: string, b: string) => a.localeCompare(b);
@@ -30,7 +44,7 @@ export default function VideoList() {
       (sort === 'published-desc' ? by(b.publishedAt, a.publishedAt)
         : sort === 'published-asc' ? by(a.publishedAt, b.publishedAt)
           : by(b.updatedAt, a.updatedAt)) || a.title.localeCompare(b.title));
-  }, [videos, q, status, provider, sort]);
+  }, [videos, q, status, provider, featured, sort]);
 
   const counts = useMemo(() => {
     const c: Record<string, number> = {};
@@ -55,6 +69,11 @@ export default function VideoList() {
         <select value={provider} onChange={(e) => setProvider(e.target.value)}>
           <option value="">All sources</option><option value="vimeo">Vimeo</option><option value="youtube">YouTube</option><option value="azure">Uploaded</option>
         </select>
+        <select value={featured} onChange={(e) => setFeatured(e.target.value as '' | 'yes' | 'no')} aria-label="Home page feature">
+          <option value="">Featured or not</option>
+          <option value="yes">Featured on home page{videos ? ` (${featuredCount})` : ''}</option>
+          <option value="no">Not featured</option>
+        </select>
         <select value={sort} onChange={(e) => setSort(e.target.value as SortKey)} aria-label="Sort by">
           <option value="published-desc">Upload date, newest first</option>
           <option value="published-asc">Upload date, oldest first</option>
@@ -62,6 +81,12 @@ export default function VideoList() {
         </select>
       </div>
       {error && <p className="alert">{error}</p>}
+      {featured === 'yes' && videos && (
+        <p className="muted small feat-note">
+          The home page shows the {HOME_FEATURED_SLOTS} newest <strong>active</strong> featured videos. {onHome.size} {onHome.size === 1 ? 'is' : 'are'} showing now, marked <span className="tag tag-home">On home page</span>.
+          {featuredCount > onHome.size && ' Other featured videos are waiting for a free slot, or are not active.'}
+        </p>
+      )}
       <div className="table-wrap">
         <table className="table">
           <thead><tr><th /><th>Title</th><th>Products</th><th>Source</th><th>Status</th><th>{sort === 'updated-desc' ? 'Updated' : 'Upload date'}</th></tr></thead>
@@ -71,7 +96,7 @@ export default function VideoList() {
               return (
                 <tr key={v.id}>
                   <td className="t-thumb">{thumb ? <img src={thumb} alt="" loading="lazy" /> : <span className="no-thumb" />}</td>
-                  <td><Link to={`/videos/${v.id}`} className="t-title">{v.title}</Link>{v.featured && <span className="tag tag-feat">Featured</span>}<div className="muted small">{v.authors.join(', ')}</div></td>
+                  <td><Link to={`/videos/${v.id}`} className="t-title">{v.title}</Link>{v.featured && <span className="tag tag-feat">Featured</span>}{onHome.has(v.id) && <span className="tag tag-home">On home page</span>}<div className="muted small">{v.authors.join(', ')}</div></td>
                   <td className="small">{v.products.join(', ')}</td>
                   <td className="small">
                     {v.source.provider === 'azure' ? `Uploaded · ${STATE_LABEL[v.source.encodeState ?? 'awaiting-upload']}` : v.source.provider === 'vimeo' ? 'Vimeo' : 'YouTube'}
