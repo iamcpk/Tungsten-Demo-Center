@@ -90,6 +90,11 @@ $spId = (Invoke-Az @('ad', 'sp', 'list', '--filter', "appId eq '$appId'", '--que
 if (-not $spId) { $spId = (Invoke-Az @('ad', 'sp', 'create', '--id', $appId, '--query', 'id', '-o', 'tsv')) }
 $spId = $spId.Trim()
 Invoke-Az @('ad', 'sp', 'update', '--id', $spId, '--set', 'appRoleAssignmentRequired=true') | Out-Null
+# Without this tag the portal's Enterprise applications list hides the app (its default filter), so admins can't find it to assign users.
+$tagBody = New-TemporaryFile
+'{"tags":["WindowsAzureActiveDirectoryIntegratedApp"]}' | Set-Content $tagBody -Encoding ascii
+Invoke-Az @('rest', '--method', 'PATCH', '--url', "https://graph.microsoft.com/v1.0/servicePrincipals/$spId", '--body', "@$tagBody", '--headers', 'Content-Type=application/json') | Out-Null
+Remove-Item $tagBody -Force
 
 # ---- Assign the signed-in user the Admin role ----
 $me = (Invoke-Az @('ad', 'signed-in-user', 'show', '--query', 'id', '-o', 'tsv')).Trim()
