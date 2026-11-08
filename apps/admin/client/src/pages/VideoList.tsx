@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { api, fmtDate, mediaUrl, type Video } from '../api';
+import { api, fmtDate, mediaUrl, STATUS_LABEL, type Video } from '../api';
 import { useMe } from '../App';
 
 type SortKey = 'published-desc' | 'published-asc' | 'updated-desc';
@@ -43,14 +43,14 @@ export default function VideoList() {
       <div className="page-head">
         <div>
           <h1>Videos</h1>
-          <p className="muted">{videos ? `${videos.length} items · ${counts.active ?? 0} active · ${counts.archived ?? 0} archived · ${counts.draft ?? 0} drafts` : 'Loading...'}</p>
+          <p className="muted">{videos ? `${videos.length} items · ${counts.active ?? 0} active · ${counts.archived ?? 0} archived · ${counts.pending ?? 0} awaiting approval · ${counts.draft ?? 0} drafts` : 'Loading...'}</p>
         </div>
         <Link to="/videos/new" className="btn btn-primary">Add video</Link>
       </div>
       <div className="toolbar">
         <input type="search" placeholder="Search title, product, presenter..." value={q} onChange={(e) => setQ(e.target.value)} />
         <select value={status} onChange={(e) => setStatus(e.target.value)}>
-          <option value="">All statuses</option><option value="draft">Draft</option><option value="active">Active</option><option value="archived">Archived</option>
+          <option value="">All statuses</option><option value="draft">Draft</option><option value="pending">Awaiting approval</option><option value="active">Active</option><option value="archived">Archived</option>
         </select>
         <select value={provider} onChange={(e) => setProvider(e.target.value)}>
           <option value="">All sources</option><option value="vimeo">Vimeo</option><option value="youtube">YouTube</option><option value="azure">Uploaded</option>
@@ -76,7 +76,7 @@ export default function VideoList() {
                   <td className="small">
                     {v.source.provider === 'azure' ? `Uploaded · ${STATE_LABEL[v.source.encodeState ?? 'awaiting-upload']}` : v.source.provider === 'vimeo' ? 'Vimeo' : 'YouTube'}
                   </td>
-                  <td><span className={`tag tag-${v.status}`}>{v.status}</span></td>
+                  <td><span className={`tag tag-${v.status}`}>{STATUS_LABEL[v.status]}</span></td>
                   <td className="small muted" title={`Upload date ${fmtDate(v.publishedAt)} · last updated ${fmtDate(v.updatedAt)}`}>{fmtDate(sort === 'updated-desc' ? v.updatedAt : v.publishedAt)}</td>
                 </tr>
               );

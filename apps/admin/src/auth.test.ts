@@ -16,8 +16,22 @@ test('parses Easy Auth principal with roles', () => {
     ],
   }));
   assert.equal(u?.id, 'abc');
-  assert.deepEqual(u?.roles, ['Editor']);
+  // The older "Editor" app role maps to Content Creator.
+  assert.deepEqual(u?.roles, ['Creator']);
   assert.equal(u?.email, 'test@example.com');
+});
+
+test('maps Admin, Creator and Editor app roles without duplicates', () => {
+  const u = parsePrincipal(enc({
+    role_typ: 'roles',
+    claims: [
+      { typ: 'oid', val: 'x' },
+      { typ: 'roles', val: 'Admin' },
+      { typ: 'roles', val: 'Creator' },
+      { typ: 'roles', val: 'Editor' },
+    ],
+  }));
+  assert.deepEqual(u?.roles, ['Admin', 'Creator']);
 });
 
 test('rejects garbage and principals without an object id', () => {

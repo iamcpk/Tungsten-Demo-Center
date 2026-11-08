@@ -1,6 +1,8 @@
-export type Role = 'Admin' | 'Editor';
+export type Role = 'Admin' | 'Approver' | 'Creator';
+export const ROLE_LABEL: Record<Role, string> = { Admin: 'Administrator', Approver: 'Approver', Creator: 'Content Creator' };
 export interface Me {
   user: { id: string; name: string; email?: string; roles: Role[] };
+  canApprove: boolean;
   mediaBaseUrl: string;
   publicSiteUrl: string;
   uploadMode: 'azure' | 'local';
@@ -15,7 +17,7 @@ export interface Video {
   pageTitle?: string;
   shortDescription: string;
   description: string;
-  status: 'draft' | 'active' | 'archived';
+  status: VideoStatus;
   itemType: 'video' | 'document';
   businessLines: ('IA' | 'PA')[];
   products: string[];
@@ -46,7 +48,18 @@ export interface Video {
   internalNotes?: string;
   legacyId?: string;
   notifiedAt?: string;
+  review?: {
+    submittedBy?: string; submittedByName?: string; submittedAt?: string;
+    decision?: 'approved' | 'changes-requested'; decidedBy?: string; decidedAt?: string; note?: string; firstApprovedAt?: string;
+  };
+  /** Returned after a submit: how many approvers were emailed. */
+  notifiedApprovers?: number;
 }
+
+export type VideoStatus = 'draft' | 'pending' | 'active' | 'archived';
+export const STATUS_LABEL: Record<VideoStatus, string> = { draft: 'Draft', pending: 'Awaiting approval', active: 'Active', archived: 'Archived' };
+export const isPublished = (s: VideoStatus) => s === 'active' || s === 'archived';
+export interface Approver { email: string; name?: string; addedBy: string; addedAt: string }
 
 export interface Taxonomy { products: string[]; verticals: string[]; authors: string[]; languages: string[]; categories: string[] }
 export interface Subscriber { id: string; email: string; status: string; products: string[]; createdAt: string; confirmedAt?: string }

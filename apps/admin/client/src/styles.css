@@ -105,7 +105,14 @@ input[type='checkbox'], input[type='radio'] { width: auto; }
 .tag { display: inline-block; font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; padding: 2px 8px; border-radius: 999px; background: #eef1f5; color: var(--gray); margin-left: 6px; }
 .tag:first-child { margin-left: 0; }
 .tag-active, .tag-confirmed { background: #edfaf1; color: var(--green); }
-.tag-draft, .tag-pending { background: #fff8e7; color: #d4820a; }
+.tag-draft { background: #fff8e7; color: #d4820a; }
+.tag-pending { background: var(--light-blue); color: #0081cc; }
+h1 .tag { vertical-align: middle; font-size: 0.75rem; margin-left: 6px; }
+.editor-fieldset { border: 0; margin: 0; padding: 0; min-width: 0; }
+.editor-fieldset:disabled { opacity: 0.85; }
+.inline-form { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; }
+.inline-form .field { flex: 1 1 220px; margin: 0; }
+.alert strong { display: inline; }
 .tag-archived, .tag-unsubscribed { background: #f0f0f0; color: var(--gray); }
 .tag-feat { background: var(--light-blue); color: var(--navy); }
 

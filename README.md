@@ -3,7 +3,7 @@
 Video hosting and metadata platform for the Tungsten Automation Solutions Consulting demo library. It replaces the iVengi-hosted site at tungstendemocenter.com.
 
 - **Public site**: browse, search and filter by product, business line (Intelligent Automation / Print & Workplace Automation), industry, language and presenter. Includes the archive, attachments, email subscriptions, and contact / suggest-a-video / request-a-demo forms.
-- **Admin portal** (separate URL, Entra ID sign-in with Admin and Editor roles): manage metadata, upload videos, attach files, manage lists, notify subscribers and read form submissions.
+- **Admin portal** (separate URL, Entra ID sign-in): manage metadata, upload videos, attach files, manage lists, notify subscribers and read form submissions, with **two-stage publishing** (see [Roles and approval](#roles-and-approval)).
 - **Video sources**: existing Vimeo videos stay on Vimeo. New videos can be a Vimeo link, a YouTube link, or a file uploaded to Azure and streamed as adaptive HLS through Azure Front Door.
 
 ## Deploy it
@@ -16,7 +16,7 @@ Video hosting and metadata platform for the Tungsten Automation Solutions Consul
    ```powershell
    ./scripts/configure-admin-auth.ps1 -ResourceGroup <your-resource-group>
    ```
-   The script creates the app registration with `Admin` / `Editor` roles, requires role assignment, assigns you `Admin`, and enables sign-in on the admin web app. To keep the app registration in a separate Entra tenant (for example a test tenant), add `-EntraTenant <tenant>.onmicrosoft.com`. On later redeploys, pass the `entraClientId` and `entraTenantId` values the script prints, or the admin portal goes back to locked.
+   The script creates the app registration with `Administrator` (`Admin`) and `Content Creator` (`Creator`) roles, requires role assignment, assigns you `Admin`, and enables sign-in on the admin web app. To keep the app registration in a separate Entra tenant (for example a test tenant), add `-EntraTenant <tenant>.onmicrosoft.com`. On later redeploys, pass the `entraClientId` and `entraTenantId` values the script prints, or the admin portal goes back to locked.
    If Cosmos DB reports no capacity in your region, redeploy with `cosmosLocation` set to another region (for example `germanywestcentral`).
 4. **Import the existing catalogue** (see [Import from iVengi](#import-from-ivengi)).
 
@@ -34,6 +34,17 @@ The deployment outputs give you the public site URL, the admin portal URL and th
 | Azure Communication Services + Email | Subscription confirmations, new-video notifications, form alerts (Azure-managed sender domain) |
 | 3 user-assigned managed identities | One per workload, least-privilege RBAC. No secrets anywhere |
 | Log Analytics + Application Insights | Logs, metrics, admin audit trail |
+
+## Roles and approval
+
+| Role | Who | Can do | How it is granted |
+|---|---|---|---|
+| **Administrator** | Platform owners | Everything, including the approver list, subscribers, form inbox and deleting videos. Can approve any video, including their own. | Entra app role `Admin` |
+| **Approver** | Reviewers | Everything a Content Creator can, plus approve or send back videos, edit or unpublish published videos, maintain Lists & tags and email subscribers. Cannot approve a video they submitted. | Added on the admin portal's **Approvers** page (they also need an Entra role to sign in) |
+| **Content Creator** | Solutions Consultants | Add videos, edit unpublished videos, submit them for approval. Published videos are read-only to them. | Entra app role `Creator` (the older `Editor` role also counts) |
+| **Consumer** | Anyone | Watch and browse the public site. No sign-in. | Public |
+
+A video moves through **Draft → Awaiting approval → Active / Archived**. Only Active and Archived videos appear on the public site, and a video only becomes public through **Approve**, which records the approver. Submitting a video emails everyone on the approver list. Approving or requesting changes emails the creator, and a change request includes the approver's comment.
 
 ## Architecture
 

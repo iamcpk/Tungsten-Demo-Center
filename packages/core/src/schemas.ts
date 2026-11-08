@@ -9,7 +9,7 @@ export const videoInputSchema = z.object({
   pageTitle: z.string().trim().max(200).optional(),
   shortDescription: z.string().trim().max(600).default(''),
   description: z.string().max(20000).default(''),
-  status: z.enum(['draft', 'active', 'archived']).default('draft'),
+  status: z.enum(['draft', 'pending', 'active', 'archived']).default('draft'),
   itemType: z.enum(['video', 'document']).default('video'),
   businessLines: z.array(z.enum(['IA', 'PA'])).max(2).default([]),
   products: tagList,
@@ -36,6 +36,21 @@ export const taxonomySchema = z.object({
   authors: z.array(z.string().trim().min(1).max(80)).max(500).default([]),
   languages: tagList,
   categories: tagList,
+});
+
+export const approverInputSchema = z.object({
+  email: z.string().trim().toLowerCase().email().max(254),
+  name: z.string().trim().max(120).optional(),
+});
+
+export const approveSchema = z.object({
+  /** Where the approved video goes: the main catalogue (default) or straight to the archive. */
+  publishAs: z.enum(['active', 'archived']).default('active'),
+  note: z.string().trim().max(2000).optional(),
+});
+
+export const requestChangesSchema = z.object({
+  note: z.string().trim().min(5, 'Tell the creator what needs to change').max(2000),
 });
 
 const honeypot = z.string().max(0, 'Spam detected').optional();

@@ -3,7 +3,7 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { CONTAINERS, type CoreConfig } from './config.js';
 import { getCredential } from './credential.js';
-import type { Subscriber, Submission, Taxonomy, Video } from './types.js';
+import type { ApproverList, Subscriber, Submission, Taxonomy, Video } from './types.js';
 
 export interface Doc {
   id: string;
@@ -107,6 +107,8 @@ class LocalStore<T extends Doc> implements Store<T> {
 export interface Stores {
   videos: Store<Video>;
   meta: Store<Taxonomy>;
+  /** Approver list: a single document in the meta container (separate JSON file locally). */
+  approvers: Store<ApproverList>;
   subscribers: Store<Subscriber>;
   submissions: Store<Submission>;
 }
@@ -117,6 +119,7 @@ export function createStores(config: CoreConfig): Stores {
     return {
       videos: new LocalStore<Video>(f(CONTAINERS.videos)),
       meta: new LocalStore<Taxonomy>(f(CONTAINERS.meta)),
+      approvers: new LocalStore<ApproverList>(f('approvers')),
       subscribers: new LocalStore<Subscriber>(f(CONTAINERS.subscribers)),
       submissions: new LocalStore<Submission>(f(CONTAINERS.submissions)),
     };
@@ -127,6 +130,7 @@ export function createStores(config: CoreConfig): Stores {
   return {
     videos: new CosmosStore<Video>(db.container(CONTAINERS.videos)),
     meta: new CosmosStore<Taxonomy>(db.container(CONTAINERS.meta)),
+    approvers: new CosmosStore<ApproverList>(db.container(CONTAINERS.meta)),
     subscribers: new CosmosStore<Subscriber>(db.container(CONTAINERS.subscribers)),
     submissions: new CosmosStore<Submission>(db.container(CONTAINERS.submissions)),
   };

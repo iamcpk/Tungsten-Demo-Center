@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { api, BL, fmtBytes, fmtDate, mediaUrl, uploadToBlob, type Provider, type Taxonomy, type Video } from '../api';
+import { api, BL, fmtBytes, fmtDate, isPublished, mediaUrl, STATUS_LABEL, uploadToBlob, type Provider, type Taxonomy, type Video, type VideoStatus } from '../api';
 import { TagInput } from '../components/TagInput';
 import { useMe } from '../App';
 
@@ -60,7 +60,9 @@ export default function VideoEditor() {
   const nav = useNavigate();
   const me = useMe();
   const isAdmin = me.user.roles.includes('Admin');
+  const canApprove = me.canApprove;
   const [video, setVideo] = useState<Video>();
+  const [changesNote, setChangesNote] = useState<string>();
   const [f, setF] = useState<FormState>(EMPTY);
   const [tax, setTax] = useState<Taxonomy>();
   const [saving, setSaving] = useState(false);
@@ -112,18 +114,75 @@ export default function VideoEditor() {
     source: f.provider === 'azure' ? { provider: 'azure' } : { provider: f.provider, url: f.url },
   });
 
+  /** Create or update with the given status (defaults to the form's status). */
+  const persist = async (status: VideoStatus = f.status) => {
+    const body = { ...payload(), status };
+    return video ? api.send<Video>('PUT', `/api/videos/${video.id}`, body) : api.send<Video>('POST', '/api/videos', body);
+  };
+
+  const afterSave = (v: Video, text: string) => {
+    setVideo(v);
+    setF(fromVideo(v));
+    setMsg({ kind: 'ok', text });
+    if (!video) nav(`/videos/${v.id}`, { replace: true });
+  };
+
+  const submittedText = (v: Video) => v.notifiedApprovers
+    ? `Submitted for approval. ${v.notifiedApprovers} approver${v.notifiedApprovers === 1 ? ' has' : 's have'} been emailed.`
+    : 'Submitted for approval. No approvers could be emailed, so let an administrator know it is waiting.';
+
   const save = async (e?: React.FormEvent) => {
     e?.preventDefault();
     setSaving(true);
     setMsg(undefined);
     try {
-      const v = video
-        ? await api.send<Video>('PUT', `/api/videos/${video.id}`, payload())
-        : await api.send<Video>('POST', '/api/videos', payload());
-      setVideo(v);
-      setF(fromVideo(v));
-      setMsg({ kind: 'ok', text: video ? 'Saved.' : f.provider === 'azure' ? 'Draft created. Now upload the video file below.' : 'Video created.' });
-      if (!video) nav(`/videos/${v.id}`, { replace: true });
+      const v = await persist();
+      afterSave(v, video ? 'Saved.' : f.provider === 'azure' ? 'Draft created. Now upload the video file below.' : 'Draft created.');
+    } catch (err) {
+      setMsg({ kind: 'err', text: (err as Error).message });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const submitForApproval = async () => {
+    if (f.provider === 'azure' && video?.source.encodeState !== 'ready' && !confirm('The uploaded video has not finished encoding yet. Submit it for approval anyway?')) return;
+    setSaving(true);
+    setMsg(undefined);
+    try {
+      const v = await persist('pending');
+      afterSave(v, submittedText(v));
+    } catch (err) {
+      setMsg({ kind: 'err', text: (err as Error).message });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  /** Approver: save any edits first (the video stays pending), then publish. */
+  const approve = async (publishAs: 'active' | 'archived') => {
+    if (!video) return;
+    setSaving(true);
+    setMsg(undefined);
+    try {
+      await persist('pending');
+      const v = await api.send<Video>('POST', `/api/videos/${video.id}/approve`, { publishAs });
+      afterSave(v, publishAs === 'active' ? 'Approved and published to the public site.' : 'Approved and published to the archive.');
+    } catch (err) {
+      setMsg({ kind: 'err', text: (err as Error).message });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const requestChanges = async () => {
+    if (!video || !changesNote?.trim()) return;
+    setSaving(true);
+    setMsg(undefined);
+    try {
+      const v = await api.send<Video>('POST', `/api/videos/${video.id}/request-changes`, { note: changesNote.trim() });
+      setChangesNote(undefined);
+      afterSave(v, 'Sent back to the creator with your comments.');
     } catch (err) {
       setMsg({ kind: 'err', text: (err as Error).message });
     } finally {
@@ -192,20 +251,75 @@ export default function VideoEditor() {
   const thumb = video?.thumbnailPath ? mediaUrl(me.mediaBaseUrl, video.thumbnailPath) : video?.thumbnailUrl;
   const state = video?.source.provider === 'azure' ? video.source.encodeState ?? 'awaiting-upload' : undefined;
 
+  // ----- workflow state -----
+  const published = !!video && isPublished(video.status);
+  const pending = video?.status === 'pending';
+  /** Creators can see published videos but not change them. */
+  const readOnly = published && !canApprove;
+  const me_ = (me.user.email ?? me.user.id).toLowerCase();
+  const ownSubmission = pending && (video?.review?.submittedBy ?? video?.createdBy ?? '').toLowerCase() === me_;
+  const canDecide = pending && canApprove && (!ownSubmission || isAdmin);
+  const review = video?.review;
+
   return (
     <form onSubmit={save}>
       <div className="page-head sticky">
         <div>
-          <h1>{video ? video.title || 'Untitled' : 'Add video'}</h1>
+          <h1>{video ? video.title || 'Untitled' : 'Add video'} {video && <span className={`tag tag-${video.status}`}>{STATUS_LABEL[video.status]}</span>}</h1>
           {video && <p className="muted small">Updated {fmtDate(video.updatedAt)}{video.updatedBy ? ` by ${video.updatedBy}` : ''}{video.legacyId ? ` · iVengi #${video.legacyId}` : ''}</p>}
         </div>
         <div className="actions">
-          {video?.status === 'active' && <a className="btn" href={`${me.publicSiteUrl}/videos/${video.slug}`} target="_blank" rel="noopener noreferrer">View</a>}
-          <button className="btn btn-primary" disabled={saving}>{saving ? 'Saving...' : video ? 'Save changes' : 'Create'}</button>
+          {published && <a className="btn" href={`${me.publicSiteUrl}/videos/${video!.slug}`} target="_blank" rel="noopener noreferrer">View</a>}
+          {canDecide ? (
+            <>
+              <button type="button" className="btn" disabled={saving} onClick={() => setChangesNote(changesNote === undefined ? '' : undefined)}>Request changes</button>
+              <button type="button" className="btn btn-primary" disabled={saving} onClick={() => approve('active')}>{saving ? 'Working...' : 'Approve & publish'}</button>
+            </>
+          ) : published ? (
+            canApprove && <button className="btn btn-primary" disabled={saving}>{saving ? 'Saving...' : 'Save changes'}</button>
+          ) : (
+            <>
+              <button className="btn" disabled={saving}>{saving ? 'Saving...' : pending ? 'Save' : video ? 'Save draft' : 'Create draft'}</button>
+              {!pending && <button type="button" className="btn btn-primary" disabled={saving || !f.title.trim()} onClick={submitForApproval}>Submit for approval</button>}
+            </>
+          )}
         </div>
       </div>
       {msg && <p className={msg.kind === 'ok' ? 'notice' : 'alert'} role="status">{msg.text}</p>}
 
+      {/* Workflow banners */}
+      {readOnly && <p className="notice">This video is live on the public site. Only an approver or administrator can change it.</p>}
+      {pending && (
+        <p className="notice">
+          Awaiting approval{review?.submittedAt ? ` since ${fmtDate(review.submittedAt)}` : ''}{review?.submittedByName || review?.submittedBy ? `, submitted by ${review.submittedByName ?? review.submittedBy}` : ''}.
+          {' '}{canDecide ? 'Check it for quality and suitability, then approve it or request changes.'
+            : ownSubmission && canApprove ? 'You submitted it, so another approver needs to review it.'
+              : 'It is not on the public site yet. An approver has been asked to review it.'}
+          {!canApprove && ' You can still edit it, or move it back to Draft in Publishing.'}
+        </p>
+      )}
+      {video?.status === 'draft' && review?.decision === 'changes-requested' && (
+        <div className="alert" role="status">
+          <strong>Changes requested</strong>{review.decidedBy ? ` by ${review.decidedBy}` : ''}{review.decidedAt ? ` on ${fmtDate(review.decidedAt)}` : ''}:
+          <p style={{ margin: '6px 0 0', whiteSpace: 'pre-wrap' }}>{review.note}</p>
+          <p className="small" style={{ margin: '6px 0 0' }}>Make the changes, then submit the video for approval again.</p>
+        </div>
+      )}
+      {published && review?.decision === 'approved' && <p className="muted small">Approved by {review.decidedBy} on {fmtDate(review.decidedAt)}.</p>}
+      {canDecide && changesNote !== undefined && (
+        <section className="panel">
+          <h2>Request changes</h2>
+          <label className="field"><span>What needs to change? The creator receives this by email.</span>
+            <textarea rows={4} maxLength={2000} value={changesNote} onChange={(e) => setChangesNote(e.target.value)} autoFocus />
+          </label>
+          <div className="actions">
+            <button type="button" className="btn" onClick={() => setChangesNote(undefined)}>Cancel</button>
+            <button type="button" className="btn btn-primary" disabled={saving || changesNote.trim().length < 5} onClick={requestChanges}>Send back to creator</button>
+          </div>
+        </section>
+      )}
+
+      <fieldset className="editor-fieldset" disabled={readOnly}>
       <div className="editor">
         <div className="col">
           <section className="panel">
@@ -287,17 +401,31 @@ export default function VideoEditor() {
         <div className="col side-col">
           <section className="panel">
             <h2>Publishing</h2>
-            <label className="field"><span>Status</span>
-              <select value={f.status} onChange={(e) => set('status', e.target.value as FormState['status'])}>
-                <option value="draft">Draft (hidden)</option><option value="active">Active (public)</option><option value="archived">Archived (public, archive section)</option>
-              </select>
-            </label>
+            {published && canApprove ? (
+              <label className="field"><span>Status</span>
+                <select value={f.status} onChange={(e) => set('status', e.target.value as FormState['status'])}>
+                  <option value="active">Active (public)</option><option value="archived">Archived (public, archive section)</option><option value="draft">Draft (unpublish)</option>
+                </select>
+              </label>
+            ) : pending && !canDecide ? (
+              <label className="field"><span>Status</span>
+                <select value={f.status} onChange={(e) => set('status', e.target.value as FormState['status'])}>
+                  <option value="pending">Awaiting approval</option><option value="draft">Draft (withdraw from approval)</option>
+                </select>
+              </label>
+            ) : (
+              <div className="field"><span>Status</span><p className="small" style={{ margin: 0 }}><span className={`tag tag-${f.status}`}>{STATUS_LABEL[f.status]}</span>{' '}
+                {!video || f.status === 'draft' ? 'Hidden until it is submitted and approved.' : f.status === 'pending' ? 'Hidden until approved.' : ''}</p></div>
+            )}
+            {canDecide && (
+              <p className="hint">To file it straight into the archive instead, <button type="button" className="link" onClick={() => approve('archived')}>approve to archive</button>.</p>
+            )}
             <label className="field"><span>Publish date</span><input type="date" required value={f.publishedAt} onChange={(e) => set('publishedAt', e.target.value)} /></label>
             <label className="field"><span>Item type</span>
               <select value={f.itemType} onChange={(e) => set('itemType', e.target.value as FormState['itemType'])}><option value="video">Video</option><option value="document">Document</option></select>
             </label>
             <label className="check"><input type="checkbox" checked={f.featured} onChange={(e) => set('featured', e.target.checked)} /> Feature on the home page</label>
-            {video && isAdmin && video.status === 'active' && (
+            {video && canApprove && video.status === 'active' && (
               <div className="divider">
                 <button type="button" className="btn" onClick={notify}>Email subscribers</button>
                 {video.notifiedAt && <span className="hint">Last sent {fmtDate(video.notifiedAt)}</span>}
@@ -345,6 +473,7 @@ export default function VideoEditor() {
           )}
         </div>
       </div>
+      </fieldset>
     </form>
   );
 }

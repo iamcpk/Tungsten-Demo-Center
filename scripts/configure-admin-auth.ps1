@@ -1,7 +1,7 @@
 <#
 .SYNOPSIS
   Creates (or updates) the Entra ID app registration for the Demo Center admin portal,
-  adds Admin / Editor app roles, assigns you the Admin role, and switches on sign-in
+  adds Administrator / Content Creator app roles, assigns you the Admin role, and switches on sign-in
   for the admin web app.
 
 .DESCRIPTION
@@ -56,12 +56,21 @@ if ($appId) { $appId = $appId.Trim() }
 $rolesFile = New-TemporaryFile
 $existingRoles = @()
 if ($appId) { $existingRoles = Invoke-Az @('ad', 'app', 'show', '--id', $appId, '--query', 'appRoles') | ConvertFrom-Json }
-$roles = foreach ($r in @(
-    @{ value = 'Admin'; displayName = 'Admin'; description = 'Full access, including subscribers, form submissions and deletion.' },
-    @{ value = 'Editor'; displayName = 'Editor'; description = 'Create and edit videos, uploads and lists.' })) {
+# Approvers are maintained inside the admin portal (Approvers page), so Entra only needs these two roles.
+$wanted = @(
+    @{ value = 'Admin'; displayName = 'Administrator'; description = 'Platform owner: everything, including the approver list, subscribers, form submissions and deletion.' },
+    @{ value = 'Creator'; displayName = 'Content Creator'; description = 'Add and edit videos and submit them for approval.' })
+$roles = @(foreach ($r in $wanted) {
   $id = ($existingRoles | Where-Object { $_.value -eq $r.value } | Select-Object -First 1).id
   if (-not $id) { $id = [guid]::NewGuid().ToString() }
   [ordered]@{ allowedMemberTypes = @('User'); description = $r.description; displayName = $r.displayName; id = $id; isEnabled = $true; value = $r.value }
+})
+# Keep any other existing roles (for example the older "Editor", which the portal treats as Content Creator):
+# Entra refuses to drop a role that is still enabled or assigned.
+foreach ($e in @($existingRoles)) {
+  if ($e -and -not ($wanted.value -contains $e.value)) {
+    $roles += [ordered]@{ allowedMemberTypes = @($e.allowedMemberTypes); description = $e.description; displayName = $e.displayName; id = $e.id; isEnabled = $e.isEnabled; value = $e.value }
+  }
 }
 ConvertTo-Json -InputObject @($roles) -Depth 5 | Set-Content -Path $rolesFile -Encoding utf8
 
@@ -129,5 +138,6 @@ Invoke-Az @('webapp', 'restart', '-g', $ResourceGroup, '-n', $AdminAppName) | Ou
 Write-Host ''
 Write-Host "Done. Client ID: $appId"
 Write-Host "Sign in at https://$hostName (it can take a minute to apply)."
-Write-Host 'Give colleagues access in Entra ID > Enterprise applications > Users and groups (Admin or Editor role).'
+Write-Host 'Give colleagues access in Entra ID > Enterprise applications > Users and groups (Administrator or Content Creator role).'
+Write-Host 'Then add approvers on the Approvers page of the admin portal.'
 Write-Host "Tip: pass -p entraClientId=$appId entraTenantId=$tenantId on future deployments so redeploys keep sign-in enabled."

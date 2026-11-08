@@ -1,7 +1,13 @@
 import type { NextFunction, Request, Response } from 'express';
 import { isRunningInAzure } from '@tdc/core';
 
-export type Role = 'Admin' | 'Editor';
+/**
+ * Admin: platform owner (everything, including the approver list).
+ * Approver: can approve videos for the public site. Granted by being on the in-app approver list.
+ * Creator: Solutions Consultants who add and edit videos and submit them for approval.
+ * Admin and Creator come from Entra ID app roles ("Editor" is the older name for Creator).
+ */
+export type Role = 'Admin' | 'Approver' | 'Creator';
 export interface AdminUser {
   id: string;
   name: string;
@@ -23,7 +29,8 @@ interface ClientPrincipal {
 }
 
 const ROLE_CLAIMS = new Set(['roles', 'http://schemas.microsoft.com/ws/2008/06/identity/claims/role']);
-const KNOWN_ROLES: Role[] = ['Admin', 'Editor'];
+/** Entra app role value -> portal role. An Entra "Approver" role is honoured too, alongside the in-app list. */
+const ROLE_MAP: Record<string, Role> = { Admin: 'Admin', Approver: 'Approver', Creator: 'Creator', Editor: 'Creator' };
 
 /**
  * Parse the X-MS-CLIENT-PRINCIPAL header that App Service Authentication (Easy Auth)
@@ -43,8 +50,8 @@ export function parsePrincipal(header: string | undefined): AdminUser | undefine
   const roleTyp = p.role_typ;
   const roles = claims
     .filter((c) => ROLE_CLAIMS.has(c.typ) || c.typ === roleTyp)
-    .map((c) => c.val)
-    .filter((r): r is Role => (KNOWN_ROLES as string[]).includes(r));
+    .map((c) => ROLE_MAP[c.val])
+    .filter((r): r is Role => !!r);
   const id = get('http://schemas.microsoft.com/identity/claims/objectidentifier', 'oid');
   if (!id) return undefined;
   return {
@@ -76,13 +83,32 @@ export function resolveAuthMode(env: NodeJS.ProcessEnv = process.env): AuthMode 
 export function authenticate(mode: AuthMode) {
   return (req: Request, res: Response, next: NextFunction) => {
     req.user = mode === 'dev'
-      ? { id: 'dev-user', name: 'Local Developer', email: 'dev@localhost', roles: ['Admin', 'Editor'] }
+      ? { id: 'dev-user', name: 'Local Developer', email: 'dev@localhost', roles: ['Admin', 'Creator'] }
       : parsePrincipal(req.header('x-ms-client-principal'));
     if (!req.user) return res.status(401).json({ error: 'Sign-in required' });
     next();
   };
 }
 
+/**
+ * Adds the Approver role to signed-in users whose email is on the in-app approver list.
+ * Only users who can already sign in (they hold an Entra app role) can be approvers.
+ */
+export function withApprovers(loadApproverEmails: () => Promise<Set<string>>) {
+  return async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const u = req.user;
+      if (u?.email && u.roles.length && !u.roles.includes('Approver') && (await loadApproverEmails()).has(u.email.toLowerCase())) {
+        u.roles = [...u.roles, 'Approver'];
+      }
+      next();
+    } catch (e) {
+      next(e);
+    }
+  };
+}
+
+/** Admin always passes. */
 export function requireRole(...roles: Role[]) {
   return (req: Request, res: Response, next: NextFunction) => {
     const ok = req.user?.roles.some((r) => r === 'Admin' || roles.includes(r));

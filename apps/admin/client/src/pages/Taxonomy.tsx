@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api, type Taxonomy } from '../api';
 import { TagInput } from '../components/TagInput';
+import { useMe } from '../App';
 
 const LISTS: { key: keyof Taxonomy; label: string; hint: string }[] = [
   { key: 'products', label: 'Products', hint: 'Public product filter and subscription interests.' },
@@ -11,6 +12,7 @@ const LISTS: { key: keyof Taxonomy; label: string; hint: string }[] = [
 ];
 
 export default function TaxonomyPage() {
+  const { canApprove } = useMe();
   const [t, setT] = useState<Taxonomy>();
   const [msg, setMsg] = useState('');
   const [err, setErr] = useState('');
@@ -27,8 +29,9 @@ export default function TaxonomyPage() {
     <>
       <div className="page-head">
         <div><h1>Lists &amp; tags</h1><p className="muted">Controlled values used across videos and public filters. Removing a value here doesn't change videos that already use it.</p></div>
-        <button className="btn btn-primary" onClick={save}>Save lists</button>
+        {canApprove && <button className="btn btn-primary" onClick={save}>Save lists</button>}
       </div>
+      {!canApprove && <p className="notice">These lists drive the public site's filters, so only approvers and administrators can change them. Ask one of them to add a missing value.</p>}
       {msg && <p className="notice">{msg}</p>}
       {err && <p className="alert">{err}</p>}
       <div className="stack">
@@ -36,7 +39,9 @@ export default function TaxonomyPage() {
           <section className="panel" key={l.key}>
             <h2>{l.label} <span className="muted small">({(t[l.key] as string[]).length})</span></h2>
             <p className="hint">{l.hint}</p>
-            <TagInput value={t[l.key] as string[]} onChange={(v) => setT({ ...t, [l.key]: v })} placeholder={`Add ${l.label.toLowerCase()}`} />
+            {canApprove
+              ? <TagInput value={t[l.key] as string[]} onChange={(v) => setT({ ...t, [l.key]: v })} placeholder={`Add ${l.label.toLowerCase()}`} />
+              : <div className="tags">{(t[l.key] as string[]).map((v) => <span key={v} className="tag-pill">{v}</span>)}</div>}
           </section>
         ))}
       </div>

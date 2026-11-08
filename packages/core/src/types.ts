@@ -5,7 +5,12 @@ export const BUSINESS_LINES = {
 } as const;
 export type BusinessLine = keyof typeof BUSINESS_LINES;
 
-export type VideoStatus = 'draft' | 'active' | 'archived';
+/**
+ * draft: work in progress, hidden. pending: submitted, "Awaiting approval", hidden.
+ * active / archived: approved and public (main catalogue / archive section).
+ */
+export type VideoStatus = 'draft' | 'pending' | 'active' | 'archived';
+export const PUBLIC_STATUSES: readonly VideoStatus[] = ['active', 'archived'];
 export type SourceProvider = 'vimeo' | 'youtube' | 'azure';
 export type EncodeState = 'awaiting-upload' | 'queued' | 'encoding' | 'ready' | 'failed';
 export type ItemType = 'video' | 'document';
@@ -73,10 +78,39 @@ export interface Video {
   /** iVengi contentindex, kept for traceability. */
   legacyId?: string;
   notifiedAt?: string;
+  /** Two-stage publishing: who submitted the video and what the approver decided. Admin only. */
+  review?: ReviewInfo;
+}
+
+export interface ReviewInfo {
+  submittedBy?: string;
+  submittedByName?: string;
+  submittedAt?: string;
+  decision?: 'approved' | 'changes-requested';
+  decidedBy?: string;
+  decidedAt?: string;
+  /** Approver's comment; required when changes are requested. */
+  note?: string;
+  /** Set on the first approval; later approvals keep the original publish date. */
+  firstApprovedAt?: string;
+}
+
+/** People with approval rights, maintained by administrators in the admin portal. */
+export interface Approver {
+  /** Lower-case sign-in email (UPN) as it appears in Entra ID. */
+  email: string;
+  name?: string;
+  addedBy: string;
+  addedAt: string;
+}
+export interface ApproverList {
+  id: 'approvers';
+  people: Approver[];
+  updatedAt?: string;
 }
 
 /** Shape returned by the public API: internal fields removed. */
-export type PublicVideo = Omit<Video, 'internalNotes' | 'createdBy' | 'updatedBy' | 'legacyId' | 'notifiedAt' | 'source'> & {
+export type PublicVideo = Omit<Video, 'internalNotes' | 'createdBy' | 'updatedBy' | 'legacyId' | 'notifiedAt' | 'review' | 'source'> & {
   source: Omit<VideoSource, 'uploadBlob' | 'encodeError'>;
 };
 
@@ -125,8 +159,8 @@ export interface EncodeJobMessage {
 }
 
 export function toPublicVideo(v: Video): PublicVideo {
-  const { internalNotes, createdBy, updatedBy, legacyId, notifiedAt, source, ...rest } = v;
-  void internalNotes; void createdBy; void updatedBy; void legacyId; void notifiedAt;
+  const { internalNotes, createdBy, updatedBy, legacyId, notifiedAt, review, source, ...rest } = v;
+  void internalNotes; void createdBy; void updatedBy; void legacyId; void notifiedAt; void review;
   const { uploadBlob, encodeError, ...publicSource } = source;
   void uploadBlob; void encodeError;
   return { ...rest, source: publicSource };

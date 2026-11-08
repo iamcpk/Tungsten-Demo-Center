@@ -10,10 +10,11 @@ import { z } from 'zod';
 import {
   ATTACHMENT_TYPES, BLOB_CONTAINERS, EMPTY_TAXONOMY, MAX_ATTACHMENT_BYTES, MAX_THUMBNAIL_BYTES, MAX_VIDEO_BYTES,
   VIDEO_UPLOAD_TYPES, cleanHtml, cleanText, createMailer, createMedia, createStores, fetchOEmbed, loadConfig,
-  parseExternalVideoUrl, safeBlobName, slugify, taxonomySchema, videoInputSchema, type Attachment, type Video,
-  type VideoInput, type VideoSource,
+  parseExternalVideoUrl, safeBlobName, slugify, taxonomySchema, videoInputSchema, approveSchema, approverInputSchema,
+  requestChangesSchema, type ApproverList, type Attachment, type MailMessage, type Video, type VideoInput, type VideoSource,
 } from '@tdc/core';
-import { authenticate, csrfGuard, requireRole, resolveAuthMode } from './auth.js';
+import { authenticate, csrfGuard, requireRole, resolveAuthMode, withApprovers, type AdminUser } from './auth.js';
+import { actorId, canApprove, decisionBlockedReason, editBlockedReason, statusChangeError } from './workflow.js';
 
 const config = loadConfig();
 const authMode = resolveAuthMode();
@@ -61,12 +62,73 @@ const api = express.Router();
 api.use(rateLimit({ windowMs: 60_000, limit: 600, standardHeaders: 'draft-7', legacyHeaders: false, keyGenerator: (r) => (r.ip ?? '').replace(/:\d+$/, '') }));
 api.use((_req, res, next) => { res.set('Cache-Control', 'no-store'); next(); });
 api.use(authenticate(authMode));
+
+// ---------- approver list (in-app, maintained by administrators) ----------
+let approverCache: { at: number; emails: Set<string> } | undefined;
+async function approverList(): Promise<ApproverList> {
+  return (await stores.approvers.get('approvers')) ?? { id: 'approvers', people: [] };
+}
+async function approverEmails(): Promise<Set<string>> {
+  if (approverCache && Date.now() - approverCache.at < 30_000) return approverCache.emails;
+  const emails = new Set((await approverList()).people.map((p) => p.email.toLowerCase()));
+  approverCache = { at: Date.now(), emails };
+  return emails;
+}
+api.use(withApprovers(approverEmails));
 api.use(csrfGuard);
 api.use(express.json({ limit: '256kb' }));
 
-const editor = requireRole('Editor');
+/** Any portal role (Content Creator, Approver, Admin). */
+const creator = requireRole('Creator', 'Approver');
+const approver = requireRole('Approver');
 const admin = requireRole('Admin');
 const wrap = (fn: (req: Request, res: Response) => Promise<unknown>) => (req: Request, res: Response, next: NextFunction) => fn(req, res).catch(next);
+
+/** Creators may not change a published video (or its files); approvers and admins may. */
+function assertEditable(req: Request, v: Video) {
+  const why = editBlockedReason(req.user!, v);
+  if (why) throw new HttpError(403, why);
+}
+
+// ---------- workflow emails (best effort: a mail failure never blocks the action) ----------
+const adminBaseUrl = process.env.WEBSITE_HOSTNAME ? `https://${process.env.WEBSITE_HOSTNAME}` : `http://localhost:5174`;
+async function sendSafely(msg: MailMessage): Promise<number> {
+  if (!msg.to.length) return 0;
+  try {
+    await mailer.send(msg);
+    return msg.to.length;
+  } catch (e) {
+    console.error('workflow mail failed', (e as Error).message);
+    return 0;
+  }
+}
+const isEmail = (s?: string): s is string => !!s && /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(s);
+
+function markSubmitted(v: Video, u: AdminUser) {
+  v.status = 'pending';
+  v.review = { firstApprovedAt: v.review?.firstApprovedAt, submittedBy: actorId(u), submittedByName: u.name, submittedAt: new Date().toISOString() };
+}
+
+async function notifyApprovers(v: Video): Promise<number> {
+  const submitter = v.review?.submittedBy?.toLowerCase();
+  const to = [...(await approverEmails())].filter((e) => e !== submitter);
+  if (!to.length) console.warn(JSON.stringify({ workflow: 'no-approvers', video: v.id }));
+  return sendSafely({
+    to,
+    subject: `Awaiting approval: ${v.title}`,
+    text: `${v.review?.submittedByName ?? v.review?.submittedBy ?? 'A content creator'} submitted a video for approval on the Tungsten Demo Center.\n\n${v.title}\n${v.shortDescription}\n\nPlease check it for quality and suitability before it goes on the public site.`,
+    action: { label: 'Review the video', url: `${adminBaseUrl}/videos/${v.id}` },
+  });
+}
+
+async function notifySubmitter(v: Video, approved: boolean, by: AdminUser) {
+  const to = v.review?.submittedBy;
+  if (!isEmail(to) || to === actorId(by)) return 0;
+  const note = v.review?.note ? `\n\nComment from ${by.name}:\n${v.review.note}` : '';
+  return sendSafely(approved
+    ? { to: [to], subject: `Published: ${v.title}`, text: `${by.name} approved your video and it is now on the public Tungsten Demo Center.${note}`, action: { label: 'View it on the site', url: `${config.publicSiteUrl}/videos/${v.slug}` } }
+    : { to: [to], subject: `Changes requested: ${v.title}`, text: `${by.name} reviewed your video and asked for changes before it can be published.${note}\n\nUpdate the video and submit it for approval again.`, action: { label: 'Open the video', url: `${adminBaseUrl}/videos/${v.id}` } });
+}
 
 function audit(req: Request, action: string, target: string) {
   // Structured log line picked up by Application Insights.
@@ -123,22 +185,24 @@ function applyInput(base: Partial<Video>, input: VideoInput) {
 }
 
 // ---------- session ----------
-api.get('/me', (req, res) => res.json({ user: req.user, mediaBaseUrl: config.mediaBaseUrl, publicSiteUrl: config.publicSiteUrl, uploadMode: media.mode }));
+api.get('/me', (req, res) => res.json({ user: req.user, canApprove: canApprove(req.user!), mediaBaseUrl: config.mediaBaseUrl, publicSiteUrl: config.publicSiteUrl, uploadMode: media.mode }));
 
 // ---------- videos ----------
-api.get('/videos', editor, wrap(async (_req, res) => {
+api.get('/videos', creator, wrap(async (_req, res) => {
   const all = await stores.videos.list();
   all.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   res.json(all);
 }));
 
-api.get('/videos/:id', editor, wrap(async (req, res) => {
+api.get('/videos/:id', creator, wrap(async (req, res) => {
   const v = await loadVideo(req, res);
   if (v) res.json(v);
 }));
 
-api.post('/videos', editor, wrap(async (req, res) => {
+api.post('/videos', creator, wrap(async (req, res) => {
   const input = videoInputSchema.parse(req.body);
+  const statusError = statusChangeError(req.user!, undefined, input.status);
+  if (statusError) throw new HttpError(403, statusError);
   const now = new Date().toISOString();
   const id = randomUUID();
   const source = await resolveSource(input.source);
@@ -159,15 +223,21 @@ api.post('/videos', editor, wrap(async (req, res) => {
     if (info?.thumbnailUrl) v.thumbnailUrl = info.thumbnailUrl;
     if (info?.durationSec) v.source.durationSec = info.durationSec;
   }
+  if (v.status === 'pending') markSubmitted(v, req.user!);
   await stores.videos.upsert(v);
   audit(req, 'video.create', id);
-  res.status(201).json(v);
+  const notifiedApprovers = v.status === 'pending' ? await notifyApprovers(v) : undefined;
+  if (v.status === 'pending') audit(req, 'video.submit', id);
+  res.status(201).json({ ...v, notifiedApprovers });
 }));
 
-api.put('/videos/:id', editor, wrap(async (req, res) => {
+api.put('/videos/:id', creator, wrap(async (req, res) => {
   const existing = await loadVideo(req, res);
   if (!existing) return;
+  assertEditable(req, existing);
   const input = videoInputSchema.parse(req.body);
+  const statusError = existing.status === input.status ? undefined : statusChangeError(req.user!, existing.status, input.status);
+  if (statusError) throw new HttpError(403, statusError);
   const source = await resolveSource(input.source, existing.source);
   const sourceChanged = source.externalId !== existing.source.externalId || source.provider !== existing.source.provider;
   const v: Video = {
@@ -184,9 +254,91 @@ api.put('/videos/:id', editor, wrap(async (req, res) => {
     if (info?.thumbnailUrl) v.thumbnailUrl = info.thumbnailUrl;
     if (info?.durationSec) v.source.durationSec = info.durationSec;
   }
+  const submitted = v.status === 'pending' && existing.status !== 'pending';
+  if (submitted) markSubmitted(v, req.user!);
   await stores.videos.upsert(v);
-  audit(req, 'video.update', v.id);
+  audit(req, submitted ? 'video.submit' : 'video.update', v.id);
+  const notifiedApprovers = submitted ? await notifyApprovers(v) : undefined;
+  res.json({ ...v, notifiedApprovers });
+}));
+
+// ---------- two-stage publishing ----------
+api.post('/videos/:id/submit', creator, wrap(async (req, res) => {
+  const v = await loadVideo(req, res);
+  if (!v) return;
+  if (v.status !== 'draft') throw new HttpError(409, v.status === 'pending' ? 'This video is already awaiting approval.' : 'Only draft videos can be submitted for approval.');
+  markSubmitted(v, req.user!);
+  v.updatedAt = new Date().toISOString();
+  v.updatedBy = actorId(req.user!);
+  await stores.videos.upsert(v);
+  audit(req, 'video.submit', v.id);
+  res.json({ ...v, notifiedApprovers: await notifyApprovers(v) });
+}));
+
+api.post('/videos/:id/approve', approver, wrap(async (req, res) => {
+  const v = await loadVideo(req, res);
+  if (!v) return;
+  const why = decisionBlockedReason(req.user!, v);
+  if (why) throw new HttpError(v.status === 'pending' ? 403 : 409, why);
+  const body = approveSchema.parse(req.body ?? {});
+  const now = new Date().toISOString();
+  // First approval of new content: if the publish date was left at its default (the day it was created),
+  // use the approval time so it appears as the latest video. A date the creator chose on purpose is kept.
+  if (!v.review?.firstApprovedAt && !v.legacyId && v.publishedAt.slice(0, 10) === v.createdAt.slice(0, 10)) v.publishedAt = now;
+  v.status = body.publishAs;
+  v.review = { ...v.review, decision: 'approved', decidedBy: actorId(req.user!), decidedAt: now, note: body.note || undefined, firstApprovedAt: v.review?.firstApprovedAt ?? now };
+  v.updatedAt = now;
+  v.updatedBy = actorId(req.user!);
+  await stores.videos.upsert(v);
+  audit(req, 'video.approve', v.id);
+  await notifySubmitter(v, true, req.user!);
   res.json(v);
+}));
+
+api.post('/videos/:id/request-changes', approver, wrap(async (req, res) => {
+  const v = await loadVideo(req, res);
+  if (!v) return;
+  const why = decisionBlockedReason(req.user!, v);
+  if (why) throw new HttpError(v.status === 'pending' ? 403 : 409, why);
+  const { note } = requestChangesSchema.parse(req.body);
+  const now = new Date().toISOString();
+  v.status = 'draft';
+  v.review = { ...v.review, decision: 'changes-requested', decidedBy: actorId(req.user!), decidedAt: now, note: cleanText(note, 2000) };
+  v.updatedAt = now;
+  v.updatedBy = actorId(req.user!);
+  await stores.videos.upsert(v);
+  audit(req, 'video.request-changes', v.id);
+  await notifySubmitter(v, false, req.user!);
+  res.json(v);
+}));
+
+// ---------- approvers (Admin only) ----------
+api.get('/approvers', admin, wrap(async (_req, res) => {
+  res.json((await approverList()).people.sort((a, b) => a.email.localeCompare(b.email)));
+}));
+
+api.post('/approvers', admin, wrap(async (req, res) => {
+  const input = approverInputSchema.parse(req.body);
+  const list = await approverList();
+  if (list.people.some((p) => p.email === input.email)) throw new HttpError(409, `${input.email} is already an approver.`);
+  list.people.push({ email: input.email, name: input.name ? cleanText(input.name, 120) : undefined, addedBy: actorId(req.user!), addedAt: new Date().toISOString() });
+  list.updatedAt = new Date().toISOString();
+  await stores.approvers.upsert(list);
+  approverCache = undefined;
+  audit(req, 'approver.add', input.email);
+  res.status(201).json(list.people);
+}));
+
+api.delete('/approvers/:email', admin, wrap(async (req, res) => {
+  const email = z.string().trim().toLowerCase().email().parse(req.params.email);
+  const list = await approverList();
+  if (!list.people.some((p) => p.email === email)) throw new HttpError(404, 'Not an approver');
+  list.people = list.people.filter((p) => p.email !== email);
+  list.updatedAt = new Date().toISOString();
+  await stores.approvers.upsert(list);
+  approverCache = undefined;
+  audit(req, 'approver.remove', email);
+  res.json(list.people);
 }));
 
 api.delete('/videos/:id', admin, wrap(async (req, res) => {
@@ -202,7 +354,7 @@ api.delete('/videos/:id', admin, wrap(async (req, res) => {
 }));
 
 /** Look up title/thumbnail for a pasted Vimeo/YouTube link (fixed provider endpoints only). */
-api.get('/oembed', editor, wrap(async (req, res) => {
+api.get('/oembed', creator, wrap(async (req, res) => {
   const src = typeof req.query.url === 'string' ? parseExternalVideoUrl(req.query.url) : undefined;
   if (!src) return res.status(400).json({ error: 'Only Vimeo and YouTube links are supported' });
   res.json({ source: src, info: (await fetchOEmbed(src).catch(() => undefined)) ?? null });
@@ -211,9 +363,10 @@ api.get('/oembed', editor, wrap(async (req, res) => {
 // ---------- video file upload (browser -> Blob Storage directly) ----------
 const ext = (name: string) => (name.split('.').pop() ?? '').toLowerCase();
 
-api.post('/videos/:id/upload-url', editor, wrap(async (req, res) => {
+api.post('/videos/:id/upload-url', creator, wrap(async (req, res) => {
   const v = await loadVideo(req, res);
   if (!v) return;
+  assertEditable(req, v);
   const body = z.object({ fileName: z.string().min(1).max(255), size: z.number().int().positive().max(MAX_VIDEO_BYTES) }).parse(req.body);
   if (!VIDEO_UPLOAD_TYPES.includes(ext(body.fileName))) throw new HttpError(400, `Unsupported video type. Allowed: ${VIDEO_UPLOAD_TYPES.join(', ')}`);
   const blobName = `${v.id}/${Date.now()}-${safeBlobName(body.fileName)}`;
@@ -222,9 +375,10 @@ api.post('/videos/:id/upload-url', editor, wrap(async (req, res) => {
   res.json({ blobName, url: media.mode === 'local' ? `/api/local-upload/${BLOB_CONTAINERS.uploads}/${blobName}` : url });
 }));
 
-api.post('/videos/:id/upload-complete', editor, wrap(async (req, res) => {
+api.post('/videos/:id/upload-complete', creator, wrap(async (req, res) => {
   const v = await loadVideo(req, res);
   if (!v) return;
+  assertEditable(req, v);
   const { blobName } = z.object({ blobName: z.string().min(1).max(400) }).parse(req.body);
   if (!blobName.startsWith(`${v.id}/`)) throw new HttpError(400, 'Upload does not belong to this video');
   const size = await media.blobSize(BLOB_CONTAINERS.uploads, blobName);
@@ -239,9 +393,10 @@ api.post('/videos/:id/upload-complete', editor, wrap(async (req, res) => {
   res.json(v);
 }));
 
-api.post('/videos/:id/re-encode', editor, wrap(async (req, res) => {
+api.post('/videos/:id/re-encode', creator, wrap(async (req, res) => {
   const v = await loadVideo(req, res);
   if (!v) return;
+  assertEditable(req, v);
   const uploadBlob = v.source.uploadBlob;
   if (v.source.provider !== 'azure' || !uploadBlob) throw new HttpError(400, 'No uploaded source file to encode');
   v.source = { ...v.source, encodeState: 'queued', encodeError: undefined };
@@ -260,9 +415,10 @@ function imageType(buf: Buffer): { ext: string; type: string } | undefined {
   return undefined;
 }
 
-api.post('/videos/:id/thumbnail', editor, thumbUpload.single('file'), wrap(async (req, res) => {
+api.post('/videos/:id/thumbnail', creator, thumbUpload.single('file'), wrap(async (req, res) => {
   const v = await loadVideo(req, res);
   if (!v) return;
+  assertEditable(req, v);
   const file = req.file;
   const kind = file ? imageType(file.buffer) : undefined;
   if (!file || !kind) throw new HttpError(400, 'Upload a JPG, PNG or WebP image');
@@ -275,9 +431,10 @@ api.post('/videos/:id/thumbnail', editor, thumbUpload.single('file'), wrap(async
 }));
 
 // ---------- attachments (browser -> media container directly) ----------
-api.post('/videos/:id/attachments/upload-url', editor, wrap(async (req, res) => {
+api.post('/videos/:id/attachments/upload-url', creator, wrap(async (req, res) => {
   const v = await loadVideo(req, res);
   if (!v) return;
+  assertEditable(req, v);
   const body = z.object({ fileName: z.string().min(1).max(255), size: z.number().int().positive().max(MAX_ATTACHMENT_BYTES) }).parse(req.body);
   const e = ext(body.fileName);
   if (!ATTACHMENT_TYPES[e]) throw new HttpError(400, `Unsupported file type. Allowed: ${Object.keys(ATTACHMENT_TYPES).join(', ')}`);
@@ -286,9 +443,10 @@ api.post('/videos/:id/attachments/upload-url', editor, wrap(async (req, res) => 
   res.json({ blobName, contentType: ATTACHMENT_TYPES[e], url: media.mode === 'local' ? `/api/local-upload/${BLOB_CONTAINERS.media}/${blobName}` : url });
 }));
 
-api.post('/videos/:id/attachments', editor, wrap(async (req, res) => {
+api.post('/videos/:id/attachments', creator, wrap(async (req, res) => {
   const v = await loadVideo(req, res);
   if (!v) return;
+  assertEditable(req, v);
   const body = z.object({ blobName: z.string().max(400), name: z.string().trim().min(1).max(200), description: z.string().trim().max(400).optional() }).parse(req.body);
   if (!body.blobName.startsWith(`attachments/${v.id}/`)) throw new HttpError(400, 'Invalid attachment path');
   const size = await media.blobSize(BLOB_CONTAINERS.media, body.blobName);
@@ -301,9 +459,10 @@ api.post('/videos/:id/attachments', editor, wrap(async (req, res) => {
   res.json(v);
 }));
 
-api.delete('/videos/:id/attachments/:attId', editor, wrap(async (req, res) => {
+api.delete('/videos/:id/attachments/:attId', creator, wrap(async (req, res) => {
   const v = await loadVideo(req, res);
   if (!v) return;
+  assertEditable(req, v);
   const att = v.attachments.find((a) => a.id === req.params.attId);
   if (!att) return res.status(404).json({ error: 'Attachment not found' });
   if (att.path) await media.deleteBlob(BLOB_CONTAINERS.media, att.path);
@@ -315,7 +474,7 @@ api.delete('/videos/:id/attachments/:attId', editor, wrap(async (req, res) => {
 }));
 
 // ---------- notify subscribers ----------
-api.post('/videos/:id/notify', admin, wrap(async (req, res) => {
+api.post('/videos/:id/notify', approver, wrap(async (req, res) => {
   const v = await loadVideo(req, res);
   if (!v) return;
   if (v.status !== 'active') throw new HttpError(400, 'Only active videos can be announced');
@@ -342,11 +501,11 @@ api.post('/videos/:id/notify', admin, wrap(async (req, res) => {
 }));
 
 // ---------- taxonomy ----------
-api.get('/taxonomy', editor, wrap(async (_req, res) => {
+api.get('/taxonomy', creator, wrap(async (_req, res) => {
   res.json((await stores.meta.get('taxonomy')) ?? EMPTY_TAXONOMY);
 }));
 
-api.put('/taxonomy', editor, wrap(async (req, res) => {
+api.put('/taxonomy', approver, wrap(async (req, res) => {
   const t = taxonomySchema.parse(req.body);
   const dedupe = (a: string[]) => [...new Set(a.map((x) => cleanText(x, 80)).filter(Boolean))];
   const doc = { id: 'taxonomy' as const, products: dedupe(t.products), verticals: dedupe(t.verticals), authors: dedupe(t.authors), languages: dedupe(t.languages), categories: dedupe(t.categories), updatedAt: new Date().toISOString() };
@@ -395,7 +554,7 @@ api.delete('/submissions/:id', admin, wrap(async (req, res) => {
 
 // ---------- local development upload target (stands in for a Blob SAS URL) ----------
 if (media.mode === 'local' && media.writeLocal) {
-  api.put('/local-upload/:container/*', editor, express.raw({ type: '*/*', limit: '2gb' }), wrap(async (req, res) => {
+  api.put('/local-upload/:container/*', creator, express.raw({ type: '*/*', limit: '2gb' }), wrap(async (req, res) => {
     const container = req.params.container === 'media' ? BLOB_CONTAINERS.media : BLOB_CONTAINERS.uploads;
     await media.writeLocal!(container, (req.params as Record<string, string>)[0]!, req.body as Buffer);
     res.status(201).end();

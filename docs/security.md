@@ -10,7 +10,7 @@
   | Admin portal | Read/write database | Blob Data Contributor, Queue Message Sender | send |
   | Encoder | Read/write `videos` only | Blob Data Contributor, Queue Message Processor + Reader | none |
 
-- **Admin portal sign-in:** App Service Authentication with Entra ID. The enterprise app requires role assignment, so only users given `Admin` or `Editor` can sign in. The API checks roles on every call. `Editor` can manage videos and lists. Only `Admin` can see subscribers and form submissions, delete videos, or email subscribers. The portal deploys **locked** (401 for everyone) until `configure-admin-auth.ps1` connects an app registration.
+- **Admin portal sign-in:** App Service Authentication with Entra ID. The enterprise app requires role assignment, so only users given `Admin` or `Creator` (or the older `Editor`) can sign in. The API checks roles on every call. Approval rights come from the in-app approver list that only `Admin` can change, so the app needs no Microsoft Graph permissions. Content Creators cannot publish: a video becomes public only through the approve action, approvers cannot approve their own submissions (administrators can), and creators cannot change a published video or its files. Only `Admin` can see subscribers and form submissions, delete videos, or change the approver list. Every submit, approve, request-changes and approver change is written to the audit log. The portal deploys **locked** (401 for everyone) until `configure-admin-auth.ps1` connects an app registration.
 - **Optional IP allow-list** for the admin portal (`adminAllowedIpRanges` parameter).
 - Basic-auth publishing (FTP/SCM) is disabled on both web apps. HTTPS only, TLS 1.2 minimum.
 

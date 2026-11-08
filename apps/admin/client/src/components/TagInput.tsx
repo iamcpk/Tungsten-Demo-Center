@@ -19,7 +19,7 @@ export function TagInput({ value, onChange, options = [], placeholder, allowNew 
     const val = match ?? (allowNew ? t : undefined);
     if (!val) {
       // Keep what was typed so it is not lost, and say why it was not added.
-      setWarn(`"${t}" is not in Lists & tags yet. Add it there first, then pick it here.`);
+      setWarn(`"${t}" is not in Lists & tags yet. An approver or administrator can add it there; then pick it here.`);
       return;
     }
     setWarn(undefined);
