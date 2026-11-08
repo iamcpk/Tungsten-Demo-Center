@@ -59,7 +59,7 @@ export interface Video {
 export type VideoStatus = 'draft' | 'pending' | 'active' | 'archived';
 export const STATUS_LABEL: Record<VideoStatus, string> = { draft: 'Draft', pending: 'Awaiting approval', active: 'Active', archived: 'Archived' };
 export const isPublished = (s: VideoStatus) => s === 'active' || s === 'archived';
-export interface Approver { email: string; name?: string; addedBy: string; addedAt: string }
+export interface Approver { email: string; name?: string; addedBy: string; addedAt: string; source?: 'portal' | 'entra' }
 
 export interface Taxonomy { products: string[]; verticals: string[]; authors: string[]; languages: string[]; categories: string[] }
 export interface Subscriber { id: string; email: string; status: string; products: string[]; createdAt: string; confirmedAt?: string }

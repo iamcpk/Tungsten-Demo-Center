@@ -3,9 +3,10 @@ import { isRunningInAzure } from '@tdc/core';
 
 /**
  * Admin: platform owner (everything, including the approver list).
- * Approver: can approve videos for the public site. Granted by being on the in-app approver list.
+ * Approver: can approve videos for the public site. Granted by the Entra "Approver" app role,
+ *   or by an administrator adding the person on the in-app Approvers page.
  * Creator: Solutions Consultants who add and edit videos and submit them for approval.
- * Admin and Creator come from Entra ID app roles ("Editor" is the older name for Creator).
+ * Roles come from Entra ID app roles ("Editor" is the older name for Creator).
  */
 export type Role = 'Admin' | 'Approver' | 'Creator';
 export interface AdminUser {
@@ -90,16 +91,42 @@ export function authenticate(mode: AuthMode) {
   };
 }
 
+export interface ApproverSets {
+  /** Added on the Approvers page: grants approval rights. */
+  portal: Set<string>;
+  /** Recorded from the Entra Approver role: email only, never grants rights by itself. */
+  entra: Set<string>;
+}
+export interface ApproverSync {
+  /** Someone with the Entra Approver role signed in and isn't on the email list yet. */
+  recordEntraApprover(user: AdminUser): Promise<void>;
+  /** Someone recorded from Entra no longer holds the role. */
+  dropEntraApprover(email: string): Promise<void>;
+}
+
 /**
- * Adds the Approver role to signed-in users whose email is on the in-app approver list.
- * Only users who can already sign in (they hold an Entra app role) can be approvers.
+ * Adds the Approver role to signed-in users on the in-app approver list, and keeps the approver email
+ * list in step with the Entra "Approver" app role (Entra holders are added when they sign in, and removed
+ * when they sign in without the role). Only users who can sign in (they hold an Entra app role) can be approvers.
  */
-export function withApprovers(loadApproverEmails: () => Promise<Set<string>>) {
+export function withApprovers(load: () => Promise<ApproverSets>, sync?: ApproverSync) {
   return async (req: Request, res: Response, next: NextFunction) => {
     try {
       const u = req.user;
-      if (u?.email && u.roles.length && !u.roles.includes('Approver') && (await loadApproverEmails()).has(u.email.toLowerCase())) {
-        u.roles = [...u.roles, 'Approver'];
+      const email = u?.email?.toLowerCase();
+      if (u && email && u.roles.length) {
+        const sets = await load();
+        const entraRole = u.roles.includes('Approver');
+        if (sync) {
+          try {
+            if (entraRole && !sets.portal.has(email) && !sets.entra.has(email)) await sync.recordEntraApprover(u);
+            else if (!entraRole && sets.entra.has(email)) await sync.dropEntraApprover(email);
+          } catch (e) {
+            // Keeping the email list in step must never block the request.
+            console.error('approver list sync failed', (e as Error).message);
+          }
+        }
+        if (!entraRole && sets.portal.has(email)) u.roles = [...u.roles, 'Approver'];
       }
       next();
     } catch (e) {

@@ -1,7 +1,7 @@
 <#
 .SYNOPSIS
   Creates (or updates) the Entra ID app registration for the Demo Center admin portal,
-  adds Administrator / Content Creator app roles, assigns you the Admin role, and switches on sign-in
+  adds Administrator / Approver / Content Creator app roles, assigns you the Admin role, and switches on sign-in
   for the admin web app.
 
 .DESCRIPTION
@@ -56,9 +56,10 @@ if ($appId) { $appId = $appId.Trim() }
 $rolesFile = New-TemporaryFile
 $existingRoles = @()
 if ($appId) { $existingRoles = Invoke-Az @('ad', 'app', 'show', '--id', $appId, '--query', 'appRoles') | ConvertFrom-Json }
-# Approvers are maintained inside the admin portal (Approvers page), so Entra only needs these two roles.
+# Approvers can also be added on the admin portal's Approvers page; the Entra role is the recommended way.
 $wanted = @(
     @{ value = 'Admin'; displayName = 'Administrator'; description = 'Platform owner: everything, including the approver list, subscribers, form submissions and deletion.' },
+    @{ value = 'Approver'; displayName = 'Approver'; description = 'Approve videos for the public site or send them back, and edit published videos. Includes Content Creator rights.' },
     @{ value = 'Creator'; displayName = 'Content Creator'; description = 'Add and edit videos and submit them for approval.' })
 $roles = @(foreach ($r in $wanted) {
   $id = ($existingRoles | Where-Object { $_.value -eq $r.value } | Select-Object -First 1).id
@@ -143,6 +144,5 @@ Invoke-Az @('webapp', 'restart', '-g', $ResourceGroup, '-n', $AdminAppName) | Ou
 Write-Host ''
 Write-Host "Done. Client ID: $appId"
 Write-Host "Sign in at https://$hostName (it can take a minute to apply)."
-Write-Host 'Give colleagues access in Entra ID > Enterprise applications > Users and groups (Administrator or Content Creator role).'
-Write-Host 'Then add approvers on the Approvers page of the admin portal.'
+Write-Host 'Give colleagues access in Entra ID > Enterprise applications > Users and groups (Administrator, Approver or Content Creator role).'
 Write-Host "Tip: pass -p entraClientId=$appId entraTenantId=$tenantId on future deployments so redeploys keep sign-in enabled."

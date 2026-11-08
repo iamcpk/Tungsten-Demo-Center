@@ -95,13 +95,20 @@ export interface ReviewInfo {
   firstApprovedAt?: string;
 }
 
-/** People with approval rights, maintained by administrators in the admin portal. */
+/**
+ * People emailed when a video is submitted for approval.
+ * - source "portal": added by an administrator on the Approvers page. Being on the list grants approval rights.
+ * - source "entra": recorded automatically when someone holding the Entra "Approver" app role signs in, so they
+ *   get the emails too. The Entra role is what grants their rights; the entry is dropped when the role is removed.
+ */
 export interface Approver {
   /** Lower-case sign-in email (UPN) as it appears in Entra ID. */
   email: string;
   name?: string;
   addedBy: string;
   addedAt: string;
+  /** Missing on older entries, which are "portal". */
+  source?: 'portal' | 'entra';
 }
 export interface ApproverList {
   id: 'approvers';

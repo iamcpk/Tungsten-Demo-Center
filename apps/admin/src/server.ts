@@ -13,7 +13,7 @@ import {
   parseExternalVideoUrl, safeBlobName, slugify, taxonomySchema, videoInputSchema, approveSchema, approverInputSchema,
   requestChangesSchema, type ApproverList, type Attachment, type MailMessage, type Video, type VideoInput, type VideoSource,
 } from '@tdc/core';
-import { authenticate, csrfGuard, requireRole, resolveAuthMode, withApprovers, type AdminUser } from './auth.js';
+import { authenticate, csrfGuard, requireRole, resolveAuthMode, withApprovers, type AdminUser, type ApproverSets, type ApproverSync } from './auth.js';
 import { actorId, canApprove, decisionBlockedReason, editBlockedReason, statusChangeError } from './workflow.js';
 
 const config = loadConfig();
@@ -64,17 +64,46 @@ api.use((_req, res, next) => { res.set('Cache-Control', 'no-store'); next(); });
 api.use(authenticate(authMode));
 
 // ---------- approver list (in-app, maintained by administrators) ----------
-let approverCache: { at: number; emails: Set<string> } | undefined;
+let approverCache: { at: number; sets: ApproverSets } | undefined;
 async function approverList(): Promise<ApproverList> {
   return (await stores.approvers.get('approvers')) ?? { id: 'approvers', people: [] };
 }
-async function approverEmails(): Promise<Set<string>> {
-  if (approverCache && Date.now() - approverCache.at < 30_000) return approverCache.emails;
-  const emails = new Set((await approverList()).people.map((p) => p.email.toLowerCase()));
-  approverCache = { at: Date.now(), emails };
-  return emails;
+async function approverSets(): Promise<ApproverSets> {
+  if (approverCache && Date.now() - approverCache.at < 30_000) return approverCache.sets;
+  const sets: ApproverSets = { portal: new Set(), entra: new Set() };
+  for (const p of (await approverList()).people) sets[p.source === 'entra' ? 'entra' : 'portal'].add(p.email.toLowerCase());
+  approverCache = { at: Date.now(), sets };
+  return sets;
 }
-api.use(withApprovers(approverEmails));
+/** Everyone emailed about submissions: portal-added approvers plus Entra Approver role holders who have signed in. */
+async function approverEmails(): Promise<Set<string>> {
+  const { portal, entra } = await approverSets();
+  return new Set([...portal, ...entra]);
+}
+async function updateApprovers(change: (list: ApproverList) => boolean) {
+  const list = await approverList();
+  if (!change(list)) return;
+  list.updatedAt = new Date().toISOString();
+  await stores.approvers.upsert(list);
+  approverCache = undefined;
+}
+const approverSync: ApproverSync = {
+  recordEntraApprover: (u) => updateApprovers((list) => {
+    const email = u.email!.toLowerCase();
+    if (list.people.some((p) => p.email === email)) return false;
+    list.people.push({ email, name: cleanText(u.name, 120) || undefined, addedBy: 'Entra ID role', addedAt: new Date().toISOString(), source: 'entra' });
+    console.info(JSON.stringify({ audit: true, action: 'approver.entra-add', target: email, at: new Date().toISOString() }));
+    return true;
+  }),
+  dropEntraApprover: (email) => updateApprovers((list) => {
+    const before = list.people.length;
+    list.people = list.people.filter((p) => !(p.email === email && p.source === 'entra'));
+    if (list.people.length === before) return false;
+    console.info(JSON.stringify({ audit: true, action: 'approver.entra-remove', target: email, at: new Date().toISOString() }));
+    return true;
+  }),
+};
+api.use(withApprovers(approverSets, approverSync));
 api.use(csrfGuard);
 api.use(express.json({ limit: '256kb' }));
 
@@ -319,26 +348,31 @@ api.get('/approvers', admin, wrap(async (_req, res) => {
 
 api.post('/approvers', admin, wrap(async (req, res) => {
   const input = approverInputSchema.parse(req.body);
-  const list = await approverList();
-  if (list.people.some((p) => p.email === input.email)) throw new HttpError(409, `${input.email} is already an approver.`);
-  list.people.push({ email: input.email, name: input.name ? cleanText(input.name, 120) : undefined, addedBy: actorId(req.user!), addedAt: new Date().toISOString() });
-  list.updatedAt = new Date().toISOString();
-  await stores.approvers.upsert(list);
-  approverCache = undefined;
+  const existing = (await approverList()).people.find((p) => p.email === input.email);
+  if (existing) {
+    throw new HttpError(409, existing.source === 'entra'
+      ? `${input.email} already has the Approver role in Entra ID.`
+      : `${input.email} is already an approver.`);
+  }
+  await updateApprovers((list) => {
+    list.people.push({ email: input.email, name: input.name ? cleanText(input.name, 120) : undefined, addedBy: actorId(req.user!), addedAt: new Date().toISOString(), source: 'portal' });
+    return true;
+  });
   audit(req, 'approver.add', input.email);
-  res.status(201).json(list.people);
+  res.status(201).json((await approverList()).people);
 }));
 
+// Removing an Entra-recorded entry only stops the emails until that person next signs in with the role;
+// the client explains that the role itself is removed in Entra ID.
 api.delete('/approvers/:email', admin, wrap(async (req, res) => {
   const email = z.string().trim().toLowerCase().email().parse(req.params.email);
-  const list = await approverList();
-  if (!list.people.some((p) => p.email === email)) throw new HttpError(404, 'Not an approver');
-  list.people = list.people.filter((p) => p.email !== email);
-  list.updatedAt = new Date().toISOString();
-  await stores.approvers.upsert(list);
-  approverCache = undefined;
+  if (!(await approverList()).people.some((p) => p.email === email)) throw new HttpError(404, 'Not an approver');
+  await updateApprovers((list) => {
+    list.people = list.people.filter((p) => p.email !== email);
+    return true;
+  });
   audit(req, 'approver.remove', email);
-  res.json(list.people);
+  res.json((await approverList()).people);
 }));
 
 api.delete('/videos/:id', admin, wrap(async (req, res) => {

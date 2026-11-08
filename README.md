@@ -16,7 +16,7 @@ Video hosting and metadata platform for the Tungsten Automation Solutions Consul
    ```powershell
    ./scripts/configure-admin-auth.ps1 -ResourceGroup <your-resource-group>
    ```
-   The script creates the app registration with `Administrator` (`Admin`) and `Content Creator` (`Creator`) roles, requires role assignment, assigns you `Admin`, and enables sign-in on the admin web app. To keep the app registration in a separate Entra tenant (for example a test tenant), add `-EntraTenant <tenant>.onmicrosoft.com`. On later redeploys, pass the `entraClientId` and `entraTenantId` values the script prints, or the admin portal goes back to locked.
+   The script creates the app registration with `Administrator` (`Admin`), `Approver` and `Content Creator` (`Creator`) roles, requires role assignment, assigns you `Admin`, and enables sign-in on the admin web app. To keep the app registration in a separate Entra tenant (for example a test tenant), add `-EntraTenant <tenant>.onmicrosoft.com`. On later redeploys, pass the `entraClientId` and `entraTenantId` values the script prints, or the admin portal goes back to locked.
    If Cosmos DB reports no capacity in your region, redeploy with `cosmosLocation` set to another region (for example `germanywestcentral`).
 4. **Import the existing catalogue** (see [Import from iVengi](#import-from-ivengi)).
 
@@ -40,11 +40,11 @@ The deployment outputs give you the public site URL, the admin portal URL and th
 | Role | Who | Can do | How it is granted |
 |---|---|---|---|
 | **Administrator** | Platform owners | Everything, including the approver list, subscribers, form inbox and deleting videos. Can approve any video, including their own. | Entra app role `Admin` |
-| **Approver** | Reviewers | Everything a Content Creator can, plus approve or send back videos, edit or unpublish published videos, maintain Lists & tags and email subscribers. Cannot approve a video they submitted. | Added on the admin portal's **Approvers** page (they also need an Entra role to sign in) |
+| **Approver** | Reviewers | Everything a Content Creator can, plus approve or send back videos, edit or unpublish published videos, maintain Lists & tags and email subscribers. Cannot approve a video they submitted. | Entra app role `Approver` (recommended), or added on the admin portal's **Approvers** page |
 | **Content Creator** | Solutions Consultants | Add videos, edit unpublished videos, submit them for approval. Published videos are read-only to them. | Entra app role `Creator` (the older `Editor` role also counts) |
 | **Consumer** | Anyone | Watch and browse the public site. No sign-in. | Public |
 
-A video moves through **Draft → Awaiting approval → Active / Archived**. Only Active and Archived videos appear on the public site, and a video only becomes public through **Approve**, which records the approver. Submitting a video emails everyone on the approver list. Approving or requesting changes emails the creator, and a change request includes the approver's comment.
+A video moves through **Draft → Awaiting approval → Active / Archived**. Only Active and Archived videos appear on the public site, and a video only becomes public through **Approve**, which records the approver. Submitting a video emails everyone on the approver list. People given the Entra `Approver` role join that list automatically the first time they sign in, and leave it when the role is removed, because the portal can't read Entra role assignments without Microsoft Graph permissions. Approving or requesting changes emails the creator, and a change request includes the approver's comment.
 
 ## Architecture
 
