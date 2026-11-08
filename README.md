@@ -52,7 +52,7 @@ A video moves through **Draft → Awaiting approval → Active / Archived**. Onl
 Administrators change the public site's look and wording on the admin portal's **Branding** page, without a redeploy.
 
 - **Draft, preview, publish.** Edits are saved as a draft that visitors don't see. **Preview on site** creates a private link (valid 24 hours, one at a time) that shows the draft on the real public site with a preview banner. **Publish** makes it live within about 30 seconds.
-- **History.** The last 20 published versions are kept with who published them and an optional note. Any version can be restored into the draft, and the built-in default branding can be loaded at any time.
+- **History.** The last 20 published versions are kept with who published them and an optional note. Any version can be restored into the draft, and **Reset to Tungsten default branding** returns every setting to the original Tungsten look and wording in one step (then publish).
 - **Colours** with a WCAG 2.1 AA contrast check for every text and background pair the site uses.
 - **Fonts** for headings and body text: a curated Google Fonts list, device fonts, or an uploaded WOFF2 file served from the site's own domain (self-hosted, so no visitor data goes to Google).
 - **Images:** header and footer logos, favicon (also used by the admin portal), phone home-screen icon and link-preview image. Files are checked by content, size and shape; SVGs with scripts, event handlers or external references are refused. Uploaded files are stored under `branding/` in the media container with content-hash names and served from the sites' own `/brand/` path.

@@ -92,6 +92,13 @@ export default function BrandingPage() {
     setPreview(undefined);
     return 'Unpublished changes discarded.';
   });
+  const isDefault = same(b, state.defaults);
+  const resetToDefault = () => {
+    if (!confirm('Reset everything (colours, fonts, logos, icons, menu and all text) to the Tungsten default branding? The site only changes when you publish.')) return;
+    setB(clone(state.defaults));
+    setTab('identity');
+    setMsg({ kind: 'ok', text: 'Tungsten default branding loaded. Save it as a draft to preview it, or publish to make it live.' });
+  };
   const restore = (version: number) => run('restore', async () => {
     if (dirty && !confirm('You have unsaved changes. Replace them with this earlier version?')) return;
     load(await api.send<BrandingState>('POST', `/api/branding/restore/${version}`, { rev: state.rev }));
@@ -109,10 +116,11 @@ export default function BrandingPage() {
         <div>
           <h1>Branding</h1>
           <p className="muted small">
-            {state.current ? `Live: version ${state.current.version}, published ${fmtDate(state.current.publishedAt)} by ${state.current.publishedBy}` : 'Live: the built-in default branding (nothing published yet)'} {status}
+            {state.current ? `Live: version ${state.current.version}, published ${fmtDate(state.current.publishedAt)} by ${state.current.publishedBy}` : 'Live: the Tungsten default branding (nothing published yet)'} {status}
           </p>
         </div>
         <div className="actions">
+          <button type="button" className="btn" disabled={!!busy || isDefault} onClick={resetToDefault} title={isDefault ? 'The editor already shows the Tungsten default branding' : undefined}>Reset to Tungsten default branding</button>
           {hasDraft && <button type="button" className="btn" disabled={!!busy} onClick={discard}>Discard</button>}
           <button type="button" className="btn" disabled={!!busy || !dirty} onClick={saveDraft}>{busy === 'save' ? 'Saving...' : 'Save draft'}</button>
           <button type="button" className="btn" disabled={!!busy || !hasDraft} onClick={makePreview}>{busy === 'preview' ? 'Creating...' : 'Preview on site'}</button>
@@ -151,7 +159,7 @@ export default function BrandingPage() {
           {tab === 'home' && <HomeTab b={b} edit={edit} />}
           {tab === 'footer' && <FooterTab b={b} edit={edit} />}
           {tab === 'pages' && <PagesTab b={b} edit={edit} />}
-          {tab === 'history' && <HistoryTab state={state} busy={!!busy} onRestore={restore} onReset={() => { if (confirm('Load the built-in default branding into the editor? Nothing changes on the site until you publish.')) setB(clone(state.defaults)); }} />}
+          {tab === 'history' && <HistoryTab state={state} busy={!!busy} onRestore={restore} onReset={resetToDefault} />}
         </div>
         <aside className="brand-preview-col">
           <h2 className="small muted">Live preview (unsaved changes included)</h2>
@@ -495,7 +503,7 @@ function HistoryTab({ state, busy, onRestore, onReset }: { state: BrandingState;
   const rows = [...(state.current ? [{ ...state.current, live: true }] : []), ...state.history.map((h) => ({ ...h, live: false }))];
   return (
     <Section title="Published versions" help="The last 20 published versions are kept. Restoring copies a version into the draft; it goes live when you publish.">
-      {!rows.length ? <p className="muted">Nothing has been published yet. The site uses the built-in default branding.</p> : (
+      {!rows.length ? <p className="muted">Nothing has been published yet. The site uses the Tungsten default branding.</p> : (
         <table className="table">
           <thead><tr><th>Version</th><th>Published</th><th>Note</th><th /></tr></thead>
           <tbody>
@@ -510,7 +518,7 @@ function HistoryTab({ state, busy, onRestore, onReset }: { state: BrandingState;
           </tbody>
         </table>
       )}
-      <p><button type="button" className="btn btn-sm" onClick={onReset}>Load the default branding</button></p>
+      <p><button type="button" className="btn btn-sm" onClick={onReset}>Reset to Tungsten default branding</button></p>
     </Section>
   );
 }
