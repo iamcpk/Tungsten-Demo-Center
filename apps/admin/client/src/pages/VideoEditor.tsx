@@ -215,6 +215,19 @@ export default function VideoEditor() {
     catch (err) { setMsg({ kind: 'err', text: (err as Error).message }); }
   };
 
+  const [refreshing, setRefreshing] = useState(false);
+  const refreshThumb = async () => {
+    if (!video || refreshing) return;
+    const name = video.source.provider === 'vimeo' ? 'Vimeo' : 'YouTube';
+    if (video.thumbnailPath && !confirm(`Replace the current thumbnail with the latest one from ${name}?`)) return;
+    setRefreshing(true);
+    try {
+      setVideo(await api.send<Video>('POST', `/api/videos/${video.id}/thumbnail/refresh`));
+      setMsg({ kind: 'ok', text: `Thumbnail refreshed from ${name}.` });
+    } catch (err) { setMsg({ kind: 'err', text: (err as Error).message }); }
+    finally { setRefreshing(false); }
+  };
+
   const addAttachment = async (file: File) => {
     if (!video) return;
     try {
@@ -437,8 +450,16 @@ export default function VideoEditor() {
             <section className="panel">
               <h2>Thumbnail</h2>
               {thumb ? <img className="thumb-preview" src={thumb} alt="" /> : <div className="thumb-preview empty">No thumbnail</div>}
-              <label className="btn file-btn">Upload image<input type="file" accept="image/jpeg,image/png,image/webp" onChange={(e) => e.target.files?.[0] && uploadThumb(e.target.files[0])} /></label>
-              <p className="hint">16:9, at least 1280×720. JPG, PNG or WebP up to 8 MB. Uploaded videos get one automatically.</p>
+              <div className="thumb-actions">
+                <label className="btn file-btn">Upload image<input type="file" accept="image/jpeg,image/png,image/webp" onChange={(e) => e.target.files?.[0] && uploadThumb(e.target.files[0])} /></label>
+                {(video.source.provider === 'vimeo' || video.source.provider === 'youtube') && (
+                  <button type="button" className="btn" onClick={refreshThumb} disabled={refreshing || readOnly}
+                    title={`Fetch the current thumbnail from ${video.source.provider === 'vimeo' ? 'Vimeo' : 'YouTube'}`}>
+                    {refreshing ? 'Refreshing...' : `Refresh from ${video.source.provider === 'vimeo' ? 'Vimeo' : 'YouTube'}`}
+                  </button>
+                )}
+              </div>
+              <p className="hint">16:9, at least 1280×720. JPG, PNG or WebP up to 8 MB. Uploaded videos get one automatically. Changed the thumbnail on Vimeo or YouTube? Use Refresh to copy the new one here.</p>
             </section>
           )}
 

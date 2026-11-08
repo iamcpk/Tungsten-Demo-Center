@@ -468,6 +468,59 @@ api.post('/videos/:id/thumbnail', creator, thumbUpload.single('file'), wrap(asyn
   res.json(v);
 }));
 
+/** Image hosts Vimeo and YouTube serve thumbnails from. Nothing else is ever downloaded. */
+const PROVIDER_THUMB_HOSTS = new Set(['i.vimeocdn.com', 'i.ytimg.com', 'img.youtube.com']);
+
+async function downloadProviderThumb(url: string): Promise<{ buf: Buffer; ext: string; type: string } | undefined> {
+  let u: URL;
+  try { u = new URL(url); } catch { return undefined; }
+  if (u.protocol !== 'https:' || !PROVIDER_THUMB_HOSTS.has(u.hostname)) return undefined;
+  const r = await fetch(u, { signal: AbortSignal.timeout(10000), redirect: 'error' }).catch(() => undefined);
+  if (!r?.ok) return undefined;
+  const declared = Number(r.headers.get('content-length') ?? 0);
+  if (declared > MAX_THUMBNAIL_BYTES) return undefined;
+  const buf = Buffer.from(await r.arrayBuffer());
+  if (buf.length > MAX_THUMBNAIL_BYTES) return undefined;
+  const kind = imageType(buf);
+  return kind ? { buf, ...kind } : undefined;
+}
+
+/**
+ * Re-fetch the thumbnail from Vimeo or YouTube and store a copy in our media container.
+ * Keeping our own copy under a new file name means browsers and the CDN can't keep
+ * showing the old picture (YouTube reuses the same image URL when a thumbnail changes).
+ */
+api.post('/videos/:id/thumbnail/refresh', creator, wrap(async (req, res) => {
+  const v = await loadVideo(req, res);
+  if (!v) return;
+  assertEditable(req, v);
+  const provider = v.source.provider;
+  if (provider !== 'vimeo' && provider !== 'youtube') throw new HttpError(400, 'Only Vimeo and YouTube videos have a thumbnail to refresh');
+  const name = provider === 'vimeo' ? 'Vimeo' : 'YouTube';
+  const info = await fetchOEmbed(v.source).catch(() => undefined);
+  const candidates: string[] = [];
+  // YouTube's oEmbed only returns the 480x360 letterboxed image; try the full HD frame first.
+  if (provider === 'youtube' && v.source.externalId && /^[\w-]{6,20}$/.test(v.source.externalId)) {
+    candidates.push(`https://i.ytimg.com/vi/${v.source.externalId}/maxresdefault.jpg`);
+  }
+  if (info?.thumbnailUrl) candidates.push(info.thumbnailUrl);
+  if (!candidates.length) throw new HttpError(502, `Couldn't get the thumbnail from ${name}. Check the video link is still public or unlisted.`);
+  let img: Awaited<ReturnType<typeof downloadProviderThumb>> = undefined;
+  for (const c of candidates) {
+    img = await downloadProviderThumb(c);
+    if (img) break;
+  }
+  if (!img) throw new HttpError(502, `Couldn't download the thumbnail from ${name}. Try again in a minute.`);
+  await media.deleteMediaPrefix(`thumbs/${v.id}/`);
+  v.thumbnailPath = await media.putMedia(`thumbs/${v.id}/${Date.now()}.${img.ext}`, img.buf, img.type);
+  if (info?.thumbnailUrl) v.thumbnailUrl = info.thumbnailUrl;
+  v.updatedAt = new Date().toISOString();
+  v.updatedBy = req.user!.email ?? req.user!.id;
+  await stores.videos.upsert(v);
+  audit(req, 'video.thumbnail.refresh', v.id);
+  res.json(v);
+}));
+
 // ---------- attachments (browser -> media container directly) ----------
 api.post('/videos/:id/attachments/upload-url', creator, wrap(async (req, res) => {
   const v = await loadVideo(req, res);

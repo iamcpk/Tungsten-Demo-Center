@@ -84,6 +84,7 @@ input[type='checkbox'], input[type='radio'] { width: auto; }
 .bar { height: 10px; background: #fff; border-radius: 999px; overflow: hidden; }
 .bar > div { height: 100%; background: var(--blue); transition: width 0.3s; }
 .thumb-preview { width: 100%; aspect-ratio: 16 / 9; object-fit: cover; border-radius: 8px; margin-bottom: 10px; background: #eef1f5; }
+.thumb-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .thumb-preview.empty { display: grid; place-items: center; color: var(--gray-mid); }
 .att-list { list-style: none; padding: 0; margin: 0 0 12px; display: grid; gap: 8px; }
 .att-list li { display: flex; justify-content: space-between; gap: 10px; align-items: center; }
