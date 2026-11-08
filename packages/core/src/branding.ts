@@ -219,9 +219,12 @@ export function brandHeadTags(b: Branding): string {
   return out.join('\n    ');
 }
 
+// Written with fromCharCode so the source never contains these invisible line-break characters.
+const LINE_SEP = String.fromCharCode(0x2028);
+const PARA_SEP = String.fromCharCode(0x2029);
 /** Branding as a JSON data block the browser app reads on start-up (never executed). */
 export function brandDataScript(b: Branding, preview = false): string {
-  const json = JSON.stringify({ branding: b, preview }).replace(/</g, '\\u003c').replace(/ /g, '\\u2028').replace(/ /g, '\\u2029');
+  const json = JSON.stringify({ branding: b, preview }).replace(/</g, '\\u003c').split(LINE_SEP).join('\\u2028').split(PARA_SEP).join('\\u2029');
   return `<script id="brand-data" type="application/json">${json}</script>`;
 }
 
