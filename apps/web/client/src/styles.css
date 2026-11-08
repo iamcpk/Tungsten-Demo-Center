@@ -15,15 +15,18 @@
   --shadow: 0 1px 2px rgba(0, 40, 84, 0.06), 0 6px 20px rgba(0, 40, 84, 0.06);
   --shadow-hover: 0 4px 10px rgba(0, 40, 84, 0.08), 0 18px 40px rgba(0, 40, 84, 0.14);
   --font: 'Red Hat Display', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  --font-heading: var(--font);
+  --logo-h: 34px;
   color-scheme: light;
 }
+/* The values above are fallbacks. The server adds a <style id="brand-css"> with the published branding. */
 
 * { box-sizing: border-box; }
 html { -webkit-text-size-adjust: 100%; }
 body { margin: 0; font-family: var(--font); color: var(--ink); background: var(--bg); line-height: 1.55; font-size: 16px; }
 img { max-width: 100%; display: block; }
 a { color: var(--blue-dark); }
-h1, h2, h3 { line-height: 1.2; color: var(--navy); margin: 0 0 0.5em; }
+h1, h2, h3 { line-height: 1.2; color: var(--navy); margin: 0 0 0.5em; font-family: var(--font-heading); }
 h1 { font-size: clamp(1.8rem, 3.2vw, 2.6rem); font-weight: 900; letter-spacing: -0.01em; }
 h2 { font-size: 1.4rem; font-weight: 700; }
 h3 { font-size: 1.02rem; font-weight: 700; }
@@ -55,10 +58,11 @@ button { font: inherit; }
 .link-arrow::after { content: ' →'; }
 
 /* Header */
-.site-header { position: sticky; top: 0; z-index: 50; background: rgba(255, 255, 255, 0.92); backdrop-filter: saturate(1.4) blur(12px); border-bottom: 1px solid var(--line); }
+.preview-banner { display: flex; align-items: center; justify-content: center; gap: 16px; flex-wrap: wrap; padding: 10px 16px; background: #fff4d6; color: #5c4400; border-bottom: 1px solid #e8c35a; font-size: 0.92rem; }
+.site-header { position: sticky; top: 0; z-index: 50; background: color-mix(in srgb, var(--card) 92%, transparent); backdrop-filter: saturate(1.4) blur(12px); border-bottom: 1px solid var(--line); }
 .header-inner { display: flex; align-items: center; justify-content: space-between; height: 68px; }
 .brand { display: flex; align-items: center; gap: 12px; text-decoration: none; }
-.brand img { height: 34px; width: auto; }
+.brand img { height: var(--logo-h); width: auto; max-width: 280px; object-fit: contain; }
 .brand-sub { font-weight: 700; color: var(--navy); padding-left: 12px; border-left: 2px solid var(--line); font-size: 0.95rem; letter-spacing: 0.04em; text-transform: uppercase; }
 nav { display: flex; align-items: center; gap: 6px; }
 nav a { text-decoration: none; color: var(--navy); font-weight: 600; padding: 8px 12px; border-radius: 8px; }
@@ -70,7 +74,7 @@ nav a.btn { color: #fff; margin-left: 8px; }
 .bars::after { position: absolute; top: 7px; }
 
 /* Hero */
-.hero { background: radial-gradient(1200px 500px at 85% -10%, rgba(0, 160, 251, 0.35), transparent 60%), linear-gradient(135deg, var(--navy-deep), var(--navy) 55%, var(--teal)); color: #fff; overflow: hidden; }
+.hero { background: radial-gradient(1200px 500px at 85% -10%, color-mix(in srgb, var(--blue) 35%, transparent), transparent 60%), linear-gradient(135deg, var(--navy-deep), var(--navy) 55%, var(--teal)); color: #fff; overflow: hidden; }
 .hero-inner { padding: 72px 24px 64px; max-width: 980px; }
 .hero h1 { color: #fff; font-size: clamp(2.1rem, 5vw, 3.6rem); }
 .hero .accent { color: var(--blue); }
@@ -201,6 +205,7 @@ select:focus, input:focus, textarea:focus { outline: 0; border-color: var(--blue
 .site-footer { background: var(--navy-deep); color: rgba(255, 255, 255, 0.75); margin-top: 32px; }
 .footer-inner { display: flex; justify-content: space-between; gap: 32px; flex-wrap: wrap; padding-top: 40px; padding-bottom: 24px; }
 .footer-inner strong { color: #fff; font-size: 1.1rem; }
+.footer-logo { height: 36px; width: auto; max-width: 240px; object-fit: contain; margin-bottom: 12px; }
 .footer-inner p { max-width: 420px; }
 .footer-links { display: grid; gap: 8px; }
 .footer-links a { color: #fff; text-decoration: none; }

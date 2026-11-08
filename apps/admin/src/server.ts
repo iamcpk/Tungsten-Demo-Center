@@ -4,6 +4,7 @@ import compression from 'compression';
 import rateLimit from 'express-rate-limit';
 import multer from 'multer';
 import { randomUUID } from 'node:crypto';
+import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
@@ -12,6 +13,9 @@ import {
   VIDEO_UPLOAD_TYPES, cleanHtml, cleanText, createMailer, createMedia, createStores, fetchOEmbed, loadConfig,
   parseExternalVideoUrl, safeBlobName, slugify, taxonomySchema, videoInputSchema, approveSchema, approverInputSchema,
   requestChangesSchema, type ApproverList, type Attachment, type MailMessage, type Video, type VideoInput, type VideoSource,
+  BRANDING_HISTORY_LIMIT, BRAND_ASSET_RULES, DEFAULT_BRANDING, PREVIEW_HOURS, brandAssetBlob, brandAssetHeaders, brandAssetUrl,
+  brandingPublishSchema, brandingSaveSchema, escapeHtml, fetchBrandAsset, hashToken, inspectBrandAsset, publishedSettings, randomToken,
+  referencedAssets, withDefaults, type BrandAssetKind, type BrandingDoc,
 } from '@tdc/core';
 import { authenticate, csrfGuard, requireRole, resolveAuthMode, withApprovers, type AdminUser, type ApproverSets, type ApproverSync } from './auth.js';
 import { actorId, canApprove, decisionBlockedReason, editBlockedReason, statusChangeError } from './workflow.js';
@@ -586,6 +590,110 @@ api.delete('/submissions/:id', admin, wrap(async (req, res) => {
   res.status(204).end();
 }));
 
+// ---------- site branding (Admin only) ----------
+// Draft -> private preview link -> publish. Every publish is kept so an earlier version can be restored.
+async function brandingDoc(): Promise<BrandingDoc> {
+  return (await stores.branding.get('branding')) ?? { id: 'branding', history: [] };
+}
+function brandingState(doc: BrandingDoc) {
+  const meta = (v: NonNullable<BrandingDoc['published']>) => ({ version: v.version, publishedAt: v.publishedAt, publishedBy: v.publishedBy, note: v.note });
+  const live = doc.preview && Date.parse(doc.preview.expiresAt) > Date.now();
+  return {
+    settings: withDefaults(doc.draft?.settings ?? doc.published?.settings),
+    published: publishedSettings(doc),
+    defaults: DEFAULT_BRANDING,
+    rev: doc.draft?.rev ?? 0,
+    draft: doc.draft ? { updatedAt: doc.draft.updatedAt, updatedBy: doc.draft.updatedBy } : null,
+    current: doc.published ? meta(doc.published) : null,
+    history: doc.history.map(meta),
+    previewExpiresAt: live ? doc.preview!.expiresAt : null,
+    publicSiteUrl: config.publicSiteUrl,
+  };
+}
+function assertRev(doc: BrandingDoc, rev: number) {
+  if ((doc.draft?.rev ?? 0) !== rev) throw new HttpError(409, 'Someone else changed the branding draft since you opened it. Reload the page to see their changes.');
+}
+
+api.get('/branding', admin, wrap(async (_req, res) => {
+  res.json(brandingState(await brandingDoc()));
+}));
+
+api.put('/branding/draft', admin, wrap(async (req, res) => {
+  const { settings, rev } = brandingSaveSchema.parse(req.body);
+  const doc = await brandingDoc();
+  assertRev(doc, rev);
+  for (const a of referencedAssets(settings)) {
+    if (!(await media.blobSize(BLOB_CONTAINERS.media, brandAssetBlob(a.file)))) throw new HttpError(400, `The file ${a.name ?? a.file} is missing. Upload it again.`);
+  }
+  doc.draft = { settings, rev: rev + 1, updatedAt: new Date().toISOString(), updatedBy: actorId(req.user!) };
+  await stores.branding.upsert(doc);
+  audit(req, 'branding.save-draft', String(rev + 1));
+  res.json(brandingState(doc));
+}));
+
+api.delete('/branding/draft', admin, wrap(async (req, res) => {
+  const doc = await brandingDoc();
+  doc.draft = undefined;
+  doc.preview = undefined;
+  await stores.branding.upsert(doc);
+  audit(req, 'branding.discard-draft', 'branding');
+  res.json(brandingState(doc));
+}));
+
+api.post('/branding/publish', admin, wrap(async (req, res) => {
+  const { rev, note } = brandingPublishSchema.parse(req.body);
+  const doc = await brandingDoc();
+  assertRev(doc, rev);
+  if (!doc.draft) throw new HttpError(409, 'There are no unpublished changes.');
+  if (doc.published) doc.history = [doc.published, ...doc.history].slice(0, BRANDING_HISTORY_LIMIT);
+  const version = Math.max(doc.published?.version ?? 0, ...doc.history.map((h) => h.version)) + 1;
+  doc.published = { version, settings: doc.draft.settings, publishedAt: new Date().toISOString(), publishedBy: actorId(req.user!), note: note ? cleanText(note, 400) || undefined : undefined };
+  doc.draft = undefined;
+  doc.preview = undefined;
+  await stores.branding.upsert(doc);
+  faviconCache = undefined;
+  audit(req, 'branding.publish', String(version));
+  res.json(brandingState(doc));
+}));
+
+/** Copies an earlier version into the draft. It goes live only when it is published. */
+api.post('/branding/restore/:version', admin, wrap(async (req, res) => {
+  const version = z.coerce.number().int().positive().parse(req.params.version);
+  const { rev } = z.object({ rev: z.number().int().min(0) }).parse(req.body);
+  const doc = await brandingDoc();
+  assertRev(doc, rev);
+  const v = [doc.published, ...doc.history].find((h) => h?.version === version);
+  if (!v) return res.status(404).json({ error: 'Version not found' });
+  doc.draft = { settings: v.settings, rev: rev + 1, updatedAt: new Date().toISOString(), updatedBy: actorId(req.user!) };
+  await stores.branding.upsert(doc);
+  audit(req, 'branding.restore-to-draft', String(version));
+  res.json(brandingState(doc));
+}));
+
+/** A private link that shows the draft on the public site. Creating a new one cancels the old one. */
+api.post('/branding/preview', admin, wrap(async (req, res) => {
+  const doc = await brandingDoc();
+  if (!doc.draft) throw new HttpError(409, 'Save your changes as a draft first.');
+  const token = randomToken(24);
+  const expiresAt = new Date(Date.now() + PREVIEW_HOURS * 3600_000).toISOString();
+  doc.preview = { tokenHash: hashToken(token), expiresAt };
+  await stores.branding.upsert(doc);
+  audit(req, 'branding.preview-link', expiresAt);
+  res.json({ url: `${config.publicSiteUrl}/?brandPreview=${encodeURIComponent(token)}`, expiresAt });
+}));
+
+const brandUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: Math.max(...Object.values(BRAND_ASSET_RULES).map((r) => r.maxBytes)), files: 1 } });
+api.post('/branding/assets', admin, brandUpload.single('file'), wrap(async (req, res) => {
+  const kind = z.enum(Object.keys(BRAND_ASSET_RULES) as [BrandAssetKind, ...BrandAssetKind[]]).parse(req.body?.kind);
+  if (!req.file) throw new HttpError(400, 'Choose a file to upload');
+  const r = inspectBrandAsset(kind, req.file.buffer, req.file.originalname);
+  if ('error' in r) throw new HttpError(400, r.error);
+  // Content-addressed name: the same file uploaded twice is stored once, and never changes once stored.
+  await media.putMedia(brandAssetBlob(r.asset.file), req.file.buffer, r.asset.type);
+  audit(req, 'branding.asset-upload', `${kind}:${r.asset.file}`);
+  res.status(201).json(r.asset);
+}));
+
 // ---------- local development upload target (stands in for a Blob SAS URL) ----------
 if (media.mode === 'local' && media.writeLocal) {
   api.put('/local-upload/:container/*', creator, express.raw({ type: '*/*', limit: '2gb' }), wrap(async (req, res) => {
@@ -600,8 +708,35 @@ app.use('/api', (_req, res) => res.status(404).json({ error: 'Not found' }));
 
 if (config.dataMode === 'local') app.use('/media', express.static(path.resolve(config.localDataDir, 'media')));
 app.use('/assets', express.static(path.join(publicDir, 'assets'), { immutable: true, maxAge: '1y' }));
+
+// Brand files from our own origin (uploaded fonts need same-origin or CORS). Signed-in users only, via Easy Auth.
+app.get('/brand/:file', wrap(async (req, res) => {
+  const a = await fetchBrandAsset(config.mediaBaseUrl, req.params.file!);
+  if (!a) return res.status(404).end();
+  res.set(brandAssetHeaders(a.type)).send(a.body);
+}));
+
 app.use(express.static(publicDir, { index: false }));
-app.get('*', (_req, res) => res.set('Cache-Control', 'no-cache').sendFile(path.join(publicDir, 'index.html')));
+
+// The admin portal uses the published site favicon.
+let faviconCache: { at: number; tag: string } | undefined;
+async function faviconTag(): Promise<string> {
+  if (faviconCache && Date.now() - faviconCache.at < 60_000) return faviconCache.tag;
+  let tag = '<link rel="icon" type="image/svg+xml" href="/favicon.svg">';
+  try {
+    const fav = publishedSettings(await stores.branding.get('branding')).assets.favicon;
+    if (fav) tag = `<link rel="icon" type="${escapeHtml(fav.type)}" href="${escapeHtml(brandAssetUrl(fav))}">`;
+  } catch (e) {
+    console.error('branding load failed', (e as Error).message);
+  }
+  faviconCache = { at: Date.now(), tag };
+  return tag;
+}
+let adminShell: string | undefined;
+app.get('*', wrap(async (_req, res) => {
+  adminShell ??= await fs.readFile(path.join(publicDir, 'index.html'), 'utf8');
+  res.set('Cache-Control', 'no-cache').type('html').send(adminShell.replace('<!--app-favicon-->', await faviconTag()));
+}));
 
 app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
   void _next;

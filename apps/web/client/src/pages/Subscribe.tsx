@@ -1,9 +1,11 @@
 import { useState } from 'react';
 import { postJson } from '../api';
 import { useJson, useTitle } from '../hooks';
+import { useBranding } from '../branding';
 
 export default function Subscribe() {
   useTitle('Subscribe');
+  const b = useBranding();
   const { data } = useJson<{ products: string[] }>('/api/taxonomy');
   const [email, setEmail] = useState('');
   const [products, setProducts] = useState<string[]>([]);
@@ -40,8 +42,8 @@ export default function Subscribe() {
 
   return (
     <div className="wrap narrow section">
-      <h1>Subscribe to new videos</h1>
-      <p className="muted">Get an email when the Solutions Consulting team publishes new demos. Pick products to narrow it down, or leave them all unticked to hear about everything.</p>
+      <h1>{b.pages.subscribeHeading}</h1>
+      {b.pages.subscribeIntro && <p className="muted">{b.pages.subscribeIntro}</p>}
       <form className="panel form" onSubmit={submit} noValidate>
         <label className="field">
           <span>Work email</span>
@@ -62,7 +64,7 @@ export default function Subscribe() {
         <label className="hp" aria-hidden="true">Website<input tabIndex={-1} autoComplete="off" value={hp} onChange={(e) => setHp(e.target.value)} /></label>
         <label className="consent">
           <input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} required />
-          <span>I agree to receive emails from Tungsten Automation about new Demo Center videos. I can unsubscribe at any time. See the <a href="https://www.tungstenautomation.com/legal/privacy" target="_blank" rel="noopener noreferrer">privacy policy</a>.</span>
+          <span>I agree to receive emails from Tungsten Automation about new Demo Center videos. I can unsubscribe at any time. See the <a href={b.legal.privacyUrl} target="_blank" rel="noopener noreferrer">privacy policy</a>.</span>
         </label>
         {error && <p className="alert" role="alert">{error}</p>}
         <button className="btn btn-primary" disabled={!consent || !email || state === 'sending'}>{state === 'sending' ? 'Sending...' : 'Subscribe'}</button>

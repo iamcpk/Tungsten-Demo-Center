@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { getJson, siteConfig, type SiteConfig } from './api';
+import { useBranding } from './branding';
 
 export function useSiteConfig(): SiteConfig | undefined {
   const [cfg, setCfg] = useState<SiteConfig>();
@@ -22,5 +23,6 @@ export function useJson<T>(url: string | undefined) {
 }
 
 export function useTitle(title: string) {
-  useEffect(() => { document.title = title ? `${title} | Tungsten Demo Center` : 'Tungsten Demo Center'; }, [title]);
+  const site = useBranding().identity.siteName;
+  useEffect(() => { document.title = title ? `${title} | ${site}` : site; }, [title, site]);
 }

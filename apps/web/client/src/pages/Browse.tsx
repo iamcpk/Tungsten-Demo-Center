@@ -4,6 +4,7 @@ import { SearchBox } from '../components/Layout';
 import { CardGrid, SkeletonGrid } from '../components/VideoCard';
 import { useJson, useTitle } from '../hooks';
 import { BUSINESS_LINE_LABELS, getJson, type FacetKey, type SearchResult, type Video } from '../api';
+import { useBranding } from '../branding';
 
 const FILTERS: { key: FacetKey; param: string; label: string }[] = [
   { key: 'businessLines', param: 'businessLine', label: 'Business line' },
@@ -27,7 +28,9 @@ export default function Browse({ status }: { status: 'active' | 'archived' }) {
   const [showFilters, setShowFilters] = useState(false);
   const sentinel = useRef<HTMLDivElement>(null);
   const busy = useRef(false);
-  useTitle(status === 'archived' ? 'Archived videos' : 'Videos');
+  const pages = useBranding().pages;
+  const heading = status === 'archived' ? pages.archiveHeading : pages.videosHeading;
+  useTitle(heading);
 
   const query = useMemo(() => {
     const p = new URLSearchParams(params);
@@ -85,7 +88,7 @@ export default function Browse({ status }: { status: 'active' | 'archived' }) {
     <div className="wrap browse">
       <div className="browse-head">
         <div>
-          <h1>{status === 'archived' ? 'Archived videos' : 'All videos'}</h1>
+          <h1>{heading}</h1>
           <p className="muted">
             {status === 'archived'
               ? 'Older content kept for reference. Some products or versions may no longer be current.'

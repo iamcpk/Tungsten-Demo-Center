@@ -14,6 +14,13 @@
 - **Optional IP allow-list** for the admin portal (`adminAllowedIpRanges` parameter).
 - Basic-auth publishing (FTP/SCM) is disabled on both web apps. HTTPS only, TLS 1.2 minimum.
 
+## Branding
+- Only `Admin` can read or change branding, upload brand files, create preview links or publish. Every action is audit-logged.
+- Settings are validated with zod: colours must be `#rrggbb`, fonts come from a fixed list or a `[A-Za-z0-9 -]` name, links must be a built-in page, `https://` or `mailto:`, and all text is stripped to plain text. The CSS and HTML the server writes into the page are built only from these validated values, and the JSON data block escapes `<`.
+- Brand files are checked by their content (magic bytes), size and, for icons, shape. SVGs containing scripts, event handlers, `foreignObject`, DTDs, script URLs or references to other files are refused. When served, SVGs also get a `sandbox` Content-Security-Policy.
+- Preview links carry a random 192-bit token. Only its SHA-256 is stored; it expires after 24 hours and is cancelled by a new link, a publish or a discard. Preview pages are `noindex` and `no-store`.
+- Google Fonts send each visitor's IP address to Google. Self-hosted font upload is available; **confirm the font approach with Legal / Privacy before go-live.**
+
 ## Uploads
 - Browsers upload directly to Blob Storage with a **user-delegation SAS** (signed by Entra ID, never an account key). Each SAS covers one blob, allows create/write only, uses HTTPS only, and expires after 6 hours (videos) or 2 hours (attachments).
 - Allowed file extensions and maximum sizes are enforced server-side. Thumbnails go through the server, which checks their magic bytes.

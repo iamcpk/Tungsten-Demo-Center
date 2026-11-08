@@ -8,6 +8,7 @@ import Subscribe from './pages/Subscribe';
 import ContactPage from './pages/Contact';
 import { Subscribed, Unsubscribe } from './pages/SubscriptionStatus';
 import NotFound from './pages/NotFound';
+import { PreviewBanner } from './branding';
 
 export default function App() {
   const { pathname } = useLocation();
@@ -15,6 +16,7 @@ export default function App() {
   return (
     <>
       <a className="skip" href="#main">Skip to content</a>
+      <PreviewBanner />
       <Header />
       <main id="main">
         <Routes>

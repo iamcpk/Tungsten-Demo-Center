@@ -14,7 +14,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "node --test dist/core.test.js"
+    "test": "node --test dist/core.test.js dist/branding.test.js"
   },
   "dependencies": {
     "@azure/communication-email": "^1.0.0",

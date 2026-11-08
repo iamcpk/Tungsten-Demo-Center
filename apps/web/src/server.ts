@@ -9,7 +9,8 @@ import { fileURLToPath } from 'node:url';
 import {
   BUSINESS_LINES, cleanHtml, createMailer, createStores, emailId, escapeHtml, formSchema, loadConfig, normaliseEmail,
   randomToken, relatedVideos, searchCatalog, subscribeSchema, toPublicVideo, type CatalogQuery, type Submission,
-  type Subscriber, type SubmissionType, type Video, EMPTY_TAXONOMY,
+  type Subscriber, type SubmissionType, type Video, EMPTY_TAXONOMY, brandAssetHeaders, brandAssetUrl, brandDataScript, brandHeadTags,
+  fetchBrandAsset, previewSettings, publishedSettings, type Branding, type BrandingDoc,
 } from '@tdc/core';
 
 const config = loadConfig();
@@ -38,6 +39,26 @@ async function refreshCatalog(): Promise<void> {
 async function getCatalog(): Promise<Video[]> {
   if (Date.now() - catalogLoadedAt > 60_000) await refreshCatalog();
   return catalog;
+}
+
+// ---------- branding (published version cached for 30 seconds) ----------
+let brandingCache: { at: number; doc?: BrandingDoc } | undefined;
+async function getBrandingDoc(maxAgeMs = 30_000): Promise<BrandingDoc | undefined> {
+  if (brandingCache && Date.now() - brandingCache.at < maxAgeMs) return brandingCache.doc;
+  try {
+    brandingCache = { at: Date.now(), doc: await stores.branding.get('branding') };
+  } catch (e) {
+    console.error('branding load failed', (e as Error).message);
+    brandingCache ??= { at: Date.now() };
+  }
+  return brandingCache.doc;
+}
+/** The draft for a valid preview token, otherwise the published branding. */
+async function brandingFor(previewToken: unknown): Promise<{ branding: Branding; preview: boolean }> {
+  const token = typeof previewToken === 'string' && previewToken ? previewToken : undefined;
+  // A short cache even for previews, so made-up tokens can't turn every request into a database read.
+  const draft = token ? previewSettings(await getBrandingDoc(5_000), token) : undefined;
+  return draft ? { branding: draft, preview: true } : { branding: publishedSettings(await getBrandingDoc()), preview: false };
 }
 
 const app = express();
@@ -87,6 +108,12 @@ const str = (v: unknown, max = 100) => (typeof v === 'string' && v.length <= max
 
 api.get('/config', (_req, res) => {
   res.json({ mediaBaseUrl: config.mediaBaseUrl, businessLines: BUSINESS_LINES });
+});
+
+api.get('/branding', async (req, res) => {
+  const r = await brandingFor(req.query.preview);
+  if (r.preview) res.set('Cache-Control', 'no-store');
+  res.json(r);
 });
 
 api.get('/videos', async (req, res) => {
@@ -233,6 +260,18 @@ if (config.dataMode === 'local') {
 }
 
 app.use('/assets', express.static(path.join(publicDir, 'assets'), { immutable: true, maxAge: '1y' }));
+
+// Brand files (logos, favicon, fonts) from our own origin, so uploaded fonts need no CORS.
+app.get('/brand/:file', async (req, res, next) => {
+  try {
+    const a = await fetchBrandAsset(config.mediaBaseUrl, req.params.file);
+    if (!a) return res.status(404).end();
+    res.set(brandAssetHeaders(a.type)).send(a.body);
+  } catch (e) {
+    next(e);
+  }
+});
+
 app.use(express.static(publicDir, { index: false, maxAge: '1h' }));
 
 // ---------- SPA shell with per-page meta tags for link previews ----------
@@ -242,7 +281,7 @@ async function getShell(): Promise<string> {
   return shell;
 }
 
-function metaTags(title: string, description: string, url: string, image?: string): string {
+function metaTags(b: Branding, title: string, description: string, url: string, image?: string): string {
   const t = escapeHtml(title);
   const d = escapeHtml(description.slice(0, 300));
   return [
@@ -250,6 +289,7 @@ function metaTags(title: string, description: string, url: string, image?: strin
     `<meta name="description" content="${d}">`,
     `<link rel="canonical" href="${escapeHtml(url)}">`,
     `<meta property="og:type" content="video.other">`,
+    `<meta property="og:site_name" content="${escapeHtml(b.identity.siteName)}">`,
     `<meta property="og:title" content="${t}">`,
     `<meta property="og:description" content="${d}">`,
     `<meta property="og:url" content="${escapeHtml(url)}">`,
@@ -261,18 +301,21 @@ function metaTags(title: string, description: string, url: string, image?: strin
 app.get('*', async (req: Request, res: Response, next: NextFunction) => {
   try {
     let html = await getShell();
-    let tags = metaTags('Tungsten Demo Center', 'Technical demonstrations, product walk-throughs and solution videos for the Tungsten Automation portfolio.', `${config.publicSiteUrl}${req.path}`);
+    const { branding: b, preview } = await brandingFor(req.query.brandPreview);
+    const siteImage = b.assets.socialImage ? `${config.publicSiteUrl}${brandAssetUrl(b.assets.socialImage)}` : undefined;
+    let tags = metaTags(b, b.identity.siteName, b.seo.description, `${config.publicSiteUrl}${req.path}`, siteImage);
     const m = /^\/videos\/([a-z0-9-]+)$/.exec(req.path);
     if (m) {
       const v = (await getCatalog()).find((x) => x.slug === m[1]);
       if (!v) res.status(404);
       else {
         const img = v.thumbnailPath ? `${config.mediaBaseUrl}/${v.thumbnailPath}` : v.thumbnailUrl;
-        tags = metaTags(`${v.pageTitle || v.title} | Tungsten Demo Center`, v.shortDescription, `${config.publicSiteUrl}/videos/${v.slug}`, img);
+        tags = metaTags(b, `${v.pageTitle || v.title} | ${b.identity.siteName}`, v.shortDescription, `${config.publicSiteUrl}/videos/${v.slug}`, img ?? siteImage);
       }
     }
-    html = html.replace(/<title>.*?<\/title>/s, '').replace('<!--app-meta-->', tags);
-    res.set('Cache-Control', 'no-cache').type('html').send(html);
+    if (preview) tags += '\n    <meta name="robots" content="noindex, nofollow">';
+    html = html.replace(/<title>.*?<\/title>/s, '').replace('<!--app-meta-->', `${tags}\n    ${brandHeadTags(b)}\n    ${brandDataScript(b, preview)}`);
+    res.set('Cache-Control', preview ? 'no-store' : 'no-cache').type('html').send(html);
   } catch (e) {
     next(e);
   }

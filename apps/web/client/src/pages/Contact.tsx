@@ -2,18 +2,17 @@ import { useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { postJson } from '../api';
 import { useJson, useTitle } from '../hooks';
+import { useBranding } from '../branding';
 
 type FormType = 'contact' | 'suggest' | 'demo';
-const COPY: Record<FormType, { title: string; intro: string; message: string; button: string }> = {
-  contact: { title: 'Contact the team', intro: 'Questions about a video or the Demo Center? Send us a message.', message: 'Message', button: 'Send message' },
-  suggest: { title: 'Suggest a video', intro: "Tell us what you'd like to see demonstrated and we'll pass it to the right consultant.", message: 'What should the video cover?', button: 'Send suggestion' },
-  demo: { title: 'Request a demo', intro: 'Ask the Solutions Consulting team for a live, tailored demonstration.', message: 'What would you like to see?', button: 'Request demo' },
-};
+const TYPES: FormType[] = ['contact', 'suggest', 'demo'];
+const MESSAGE_LABEL: Record<FormType, string> = { contact: 'Message', suggest: 'What should the video cover?', demo: 'What would you like to see?' };
 
 export default function ContactPage() {
   const [params, setParams] = useSearchParams();
-  const type = (['contact', 'suggest', 'demo'] as FormType[]).find((t) => t === params.get('type')) ?? 'contact';
-  const copy = COPY[type];
+  const pages = useBranding().pages;
+  const type = TYPES.find((t) => t === params.get('type')) ?? 'contact';
+  const copy = { ...pages[type], message: MESSAGE_LABEL[type] };
   useTitle(copy.title);
   const { data } = useJson<{ products: string[] }>('/api/taxonomy');
   const opened = useRef(Date.now());
@@ -52,12 +51,12 @@ export default function ContactPage() {
   return (
     <div className="wrap narrow section">
       <div className="tabs" role="tablist">
-        {(Object.keys(COPY) as FormType[]).map((t) => (
-          <button key={t} role="tab" aria-selected={t === type} className={t === type ? 'on' : ''} onClick={() => setParams({ type: t }, { replace: true })}>{COPY[t].title}</button>
+        {TYPES.map((t) => (
+          <button key={t} role="tab" aria-selected={t === type} className={t === type ? 'on' : ''} onClick={() => setParams({ type: t }, { replace: true })}>{pages[t].title}</button>
         ))}
       </div>
       <h1>{copy.title}</h1>
-      <p className="muted">{copy.intro}</p>
+      {copy.intro && <p className="muted">{copy.intro}</p>}
       <form className="panel form" onSubmit={submit}>
         <div className="row2">
           <label className="field"><span>Name</span><input required minLength={2} maxLength={120} autoComplete="name" value={f.name} onChange={upd('name')} /></label>

@@ -8,6 +8,7 @@ import Subscribers from './pages/Subscribers';
 import Submissions from './pages/Submissions';
 import Approvals from './pages/Approvals';
 import Approvers from './pages/Approvers';
+import BrandingPage from './pages/Branding';
 
 export const MeContext = createContext<Me | undefined>(undefined);
 export const useMe = () => useContext(MeContext)!;
@@ -45,6 +46,7 @@ export default function App() {
             {isAdmin && <NavLink to="/approvers">Approvers</NavLink>}
             {isAdmin && <NavLink to="/subscribers">Subscribers</NavLink>}
             {isAdmin && <NavLink to="/submissions">Form inbox</NavLink>}
+            {isAdmin && <NavLink to="/branding">Branding</NavLink>}
           </nav>
           <div className="side-user">
             <strong>{me.user.name}</strong>
@@ -62,6 +64,7 @@ export default function App() {
             {isAdmin && <Route path="/approvers" element={<Approvers />} />}
             {isAdmin && <Route path="/subscribers" element={<Subscribers />} />}
             {isAdmin && <Route path="/submissions" element={<Submissions />} />}
+            {isAdmin && <Route path="/branding" element={<BrandingPage />} />}
             <Route path="*" element={<p>Page not found.</p>} />
           </Routes>
         </main>

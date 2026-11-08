@@ -4,6 +4,7 @@ Video hosting and metadata platform for the Tungsten Automation Solutions Consul
 
 - **Public site**: browse, search and filter by product, business line (Intelligent Automation / Print & Workplace Automation), industry, language and presenter. Includes the archive, attachments, email subscriptions, and contact / suggest-a-video / request-a-demo forms.
 - **Admin portal** (separate URL, Entra ID sign-in): manage metadata, upload videos, attach files, manage lists, notify subscribers and read form submissions, with **two-stage publishing** (see [Roles and approval](#roles-and-approval)).
+- **Branding** (Administrators only): colours, fonts, logos, favicon, home-screen and link-preview images, header menu, home page, footer and page text. See [Branding](#branding).
 - **Video sources**: existing Vimeo videos stay on Vimeo. New videos can be a Vimeo link, a YouTube link, or a file uploaded to Azure and streamed as adaptive HLS through Azure Front Door.
 
 ## Deploy it
@@ -45,6 +46,19 @@ The deployment outputs give you the public site URL, the admin portal URL and th
 | **Consumer** | Anyone | Watch and browse the public site. No sign-in. | Public |
 
 A video moves through **Draft → Awaiting approval → Active / Archived**. Only Active and Archived videos appear on the public site, and a video only becomes public through **Approve**, which records the approver. Submitting a video emails everyone on the approver list. People given the Entra `Approver` role join that list automatically the first time they sign in, and leave it when the role is removed, because the portal can't read Entra role assignments without Microsoft Graph permissions. Approving or requesting changes emails the creator, and a change request includes the approver's comment.
+
+## Branding
+
+Administrators change the public site's look and wording on the admin portal's **Branding** page, without a redeploy.
+
+- **Draft, preview, publish.** Edits are saved as a draft that visitors don't see. **Preview on site** creates a private link (valid 24 hours, one at a time) that shows the draft on the real public site with a preview banner. **Publish** makes it live within about 30 seconds.
+- **History.** The last 20 published versions are kept with who published them and an optional note. Any version can be restored into the draft, and the built-in default branding can be loaded at any time.
+- **Colours** with a WCAG 2.1 AA contrast check for every text and background pair the site uses.
+- **Fonts** for headings and body text: a curated Google Fonts list, device fonts, or an uploaded WOFF2 file served from the site's own domain (self-hosted, so no visitor data goes to Google).
+- **Images:** header and footer logos, favicon (also used by the admin portal), phone home-screen icon and link-preview image. Files are checked by content, size and shape; SVGs with scripts, event handlers or external references are refused. Uploaded files are stored under `branding/` in the media container with content-hash names and served from the sites' own `/brand/` path.
+- **Text:** site name, header menu (labels, order, visibility, button style, links to built-in pages, https or mailto addresses), home page sections, footer, privacy policy link and the headings and introductions on the other pages. All text is stored as plain text.
+
+The subscription consent wording is deliberately not editable, because it is stored with each subscriber as a record of consent. Workflow and subscriber emails keep their fixed wording.
 
 ## Architecture
 
