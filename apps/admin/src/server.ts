@@ -732,6 +732,10 @@ async function faviconTag(): Promise<string> {
   faviconCache = { at: Date.now(), tag };
   return tag;
 }
+app.get('/favicon.ico', wrap(async (_req, res) => {
+  const href = /href="([^"]+)"/.exec(await faviconTag())?.[1] ?? '/favicon.svg';
+  res.set('Cache-Control', 'private, max-age=300').redirect(302, href);
+}));
 let adminShell: string | undefined;
 app.get('*', wrap(async (_req, res) => {
   adminShell ??= await fs.readFile(path.join(publicDir, 'index.html'), 'utf8');

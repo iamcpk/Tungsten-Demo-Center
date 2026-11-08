@@ -272,6 +272,12 @@ app.get('/brand/:file', async (req, res, next) => {
   }
 });
 
+// Browsers and bookmark tools also ask for /favicon.ico directly, without reading the page.
+app.get('/favicon.ico', async (_req, res) => {
+  const fav = (await brandingFor(undefined)).branding.assets.favicon;
+  res.set('Cache-Control', 'public, max-age=300').redirect(302, fav ? brandAssetUrl(fav) : '/favicon.svg');
+});
+
 app.use(express.static(publicDir, { index: false, maxAge: '1h' }));
 
 // ---------- SPA shell with per-page meta tags for link previews ----------

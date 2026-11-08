@@ -138,7 +138,9 @@ h1 .tag { vertical-align: middle; font-size: 0.75rem; margin-left: 6px; }
 .brand-asset-thumb { width: 120px; height: 72px; flex-shrink: 0; border: 1.5px dashed var(--line); border-radius: 8px; display: grid; place-items: center; padding: 6px;
   background: repeating-conic-gradient(#f3f5f8 0% 25%, #fff 0% 50%) 50% / 14px 14px; }
 .brand-asset-thumb.dark { background: var(--navy-deep); }
-.brand-asset-thumb img { max-width: 100%; max-height: 100%; object-fit: contain; }
+/* Fixed box: SVGs without width/height would otherwise render at the browser default size and overflow. */
+.brand-asset-thumb { overflow: hidden; }
+.brand-asset-thumb img { width: 100%; height: 100%; object-fit: contain; }
 .brand-asset .small { margin: 0 0 6px; }
 .brand-links { display: grid; gap: 8px; margin-bottom: 10px; }
 .brand-link { display: grid; grid-template-columns: minmax(110px, 1fr) minmax(150px, 1.3fr) auto auto auto; gap: 8px; align-items: center; }
