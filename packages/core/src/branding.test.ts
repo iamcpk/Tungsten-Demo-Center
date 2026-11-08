@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  DEFAULT_BRANDING, brandCss, brandDataScript, brandHeadTags, brandingSchema, contrastRatio, copyrightText, googleFontsUrl,
+  DEFAULT_BRANDING, brandCss, brandDataScript, brandHeadTags, brandingSchema, contrastChecks, contrastRatio, copyrightText, googleFontsUrl,
   hashToken, imageSize, inspectBrandAsset, previewSettings, svgProblem, withDefaults, type BrandingDoc,
 } from './branding.js';
 
@@ -47,6 +47,10 @@ test('withDefaults fills fields added after a version was saved', () => {
   assert.equal(b.home.heading, 'Hi');
   assert.equal(b.home.lead, DEFAULT_BRANDING.home.lead);
   assert.deepEqual(withDefaults(undefined), DEFAULT_BRANDING);
+});
+
+test('the default colours pass every WCAG AA check', () => {
+  for (const c of contrastChecks(DEFAULT_BRANDING.colors)) assert.ok(c.ratio >= c.min, `${c.label}: ${c.ratio.toFixed(2)} < ${c.min}`);
 });
 
 test('contrast ratio matches WCAG reference values', () => {

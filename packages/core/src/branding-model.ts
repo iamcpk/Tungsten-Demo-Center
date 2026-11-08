@@ -97,7 +97,7 @@ export interface Branding {
 export const DEFAULT_BRANDING: Branding = {
   identity: { siteName: 'Tungsten Demo Center', brandSubtitle: 'Demo Center', logoAlt: 'Tungsten Automation', logoHeight: 34 },
   colors: {
-    primary: '#002854', primaryDeep: '#00123b', secondary: '#004766', accent: '#00a0fb', accentDark: '#0081cc', accentSoft: '#eaf6fe',
+    primary: '#002854', primaryDeep: '#00123b', secondary: '#004766', accent: '#00a0fb', accentDark: '#0072bc', accentSoft: '#eaf6fe',
     text: '#231f20', muted: '#5d6f84', mutedLight: '#8094aa', border: '#e4e8ee', background: '#f6f8fb', surface: '#ffffff',
   },
   fonts: { heading: { source: 'google', family: 'Red Hat Display' }, body: { source: 'google', family: 'Red Hat Display' } },
@@ -235,8 +235,11 @@ export function contrastChecks(c: BrandColors) {
     { label: 'Headings on cards', fg: c.primary, bg: c.surface, min: 4.5 },
     { label: 'Secondary text on cards', fg: c.muted, bg: c.surface, min: 4.5 },
     { label: 'Links on cards', fg: c.accentDark, bg: c.surface, min: 4.5 },
-    { label: 'Button text on accent buttons', fg: white, bg: c.accent, min: 4.5 },
+    { label: 'Links on page background', fg: c.accentDark, bg: c.background, min: 4.5 },
+    { label: 'Button text on buttons', fg: white, bg: c.accentDark, min: 4.5 },
+    { label: 'Chips (text on soft accent)', fg: c.primary, bg: c.accentSoft, min: 4.5 },
     { label: 'Hero heading on primary', fg: white, bg: c.primary, min: 3 },
+    { label: 'Hero highlight and small heading on primary', fg: c.accent, bg: c.primary, min: 4.5 },
     { label: 'Footer text on footer', fg: white, bg: c.primaryDeep, min: 4.5 },
   ].map((x) => ({ ...x, ratio: contrastRatio(x.fg, x.bg) }));
 }

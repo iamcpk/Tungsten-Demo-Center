@@ -2,7 +2,7 @@
   --navy: #002854;
   --navy-deep: #00123b;
   --blue: #00a0fb;
-  --blue-dark: #0081cc;
+  --blue-dark: #0072bc;
   --teal: #004766;
   --ink: #231f20;
   --gray: #5d6f84;
@@ -48,8 +48,9 @@ button { font: inherit; }
 .btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; border: 0; border-radius: 999px; padding: 11px 22px; font-weight: 700; cursor: pointer; text-decoration: none; transition: background 0.15s, transform 0.15s, box-shadow 0.15s; white-space: nowrap; }
 .btn:active { transform: translateY(1px); }
 .btn:disabled { opacity: 0.55; cursor: not-allowed; }
-.btn-primary { background: var(--blue); color: #fff; }
-.btn-primary:hover:not(:disabled) { background: var(--blue-dark); }
+/* White text needs the darker accent to meet WCAG AA (4.5:1); the bright accent is for highlights on dark backgrounds. */
+.btn-primary { background: var(--blue-dark); color: #fff; }
+.btn-primary:hover:not(:disabled) { background: color-mix(in srgb, var(--blue-dark) 82%, #000); }
 .btn-light { background: #fff; color: var(--navy); box-shadow: inset 0 0 0 1.5px var(--line); }
 .btn-light:hover { box-shadow: inset 0 0 0 1.5px var(--blue); }
 .btn-sm { padding: 7px 16px; font-size: 0.9rem; }
@@ -77,8 +78,8 @@ nav a.btn { color: #fff; margin-left: 8px; }
 .hero { background: radial-gradient(1200px 500px at 85% -10%, color-mix(in srgb, var(--blue) 35%, transparent), transparent 60%), linear-gradient(135deg, var(--navy-deep), var(--navy) 55%, var(--teal)); color: #fff; overflow: hidden; }
 .hero-inner { padding: 72px 24px 64px; max-width: 980px; }
 .hero h1 { color: #fff; font-size: clamp(2.1rem, 5vw, 3.6rem); }
-.hero .accent { color: var(--blue); }
-.eyebrow { text-transform: uppercase; letter-spacing: 0.14em; font-size: 0.8rem; font-weight: 700; color: var(--blue); margin: 0 0 12px; }
+.hero .accent, .hero .eyebrow { color: var(--blue); }
+.eyebrow { text-transform: uppercase; letter-spacing: 0.14em; font-size: 0.8rem; font-weight: 700; color: var(--blue-dark); margin: 0 0 12px; }
 .lead { font-size: 1.15rem; color: rgba(255, 255, 255, 0.82); max-width: 640px; margin: 0 0 28px; }
 .hero-lines { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 22px; }
 .line-pill { display: inline-flex; align-items: center; gap: 8px; color: #fff; text-decoration: none; padding: 8px 16px; border-radius: 999px; background: rgba(255, 255, 255, 0.1); border: 1px solid rgba(255, 255, 255, 0.2); font-weight: 600; font-size: 0.92rem; transition: background 0.15s; }
