@@ -117,10 +117,14 @@ api.get('/branding', async (req, res) => {
 });
 
 api.get('/videos', async (req, res) => {
-  const status = req.query.status === 'archived' ? 'archived' : 'active';
+  const text = str(req.query.q, 200);
+  // A search on the main Videos page also looks in the archive (shown after current videos)
+  // unless the visitor turns that off with archive=0.
+  const status: CatalogQuery['status'] = req.query.status === 'archived' ? 'archived'
+    : text?.trim() && req.query.archive !== '0' ? ['active', 'archived'] : 'active';
   const bl = str(req.query.businessLine, 2);
   const q: CatalogQuery = {
-    q: str(req.query.q, 200),
+    q: text,
     status,
     businessLine: bl === 'IA' || bl === 'PA' ? bl : undefined,
     product: str(req.query.product),

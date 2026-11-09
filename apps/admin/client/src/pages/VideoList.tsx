@@ -2,8 +2,16 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api, fmtDate, mediaUrl, STATUS_LABEL, type Video } from '../api';
 import { useMe } from '../App';
+import { cachedIndexer, rankDocs } from '../../../../../packages/core/src/search';
 
-type SortKey = 'published-desc' | 'published-asc' | 'updated-desc';
+/** '' = best match while searching, otherwise newest first. */
+type SortKey = '' | 'published-desc' | 'published-asc' | 'updated-desc';
+
+const indexVideo = cachedIndexer<Video>((v) => ({
+  title: v.title,
+  tags: [...v.products, ...v.keywords, ...v.authors, ...v.categories, ...v.verticals, v.slug],
+  body: `${v.shortDescription} ${v.internalNotes ?? ''}`,
+}));
 
 /** How many featured videos the public home page displays (apps/web/client/src/pages/Home.tsx). */
 const HOME_FEATURED_SLOTS = 4;
@@ -18,7 +26,7 @@ export default function VideoList() {
   const [status, setStatus] = useState('');
   const [provider, setProvider] = useState('');
   const [featured, setFeatured] = useState<'' | 'yes' | 'no'>('');
-  const [sort, setSort] = useState<SortKey>('published-desc');
+  const [sort, setSort] = useState<SortKey>('');
 
   useEffect(() => { api.get<Video[]>('/api/videos').then(setVideos).catch((e: Error) => setError(e.message)); }, []);
 
@@ -31,20 +39,25 @@ export default function VideoList() {
 
   const featuredCount = useMemo(() => (videos ?? []).filter((v) => v.featured).length, [videos]);
 
-  const filtered = useMemo(() => {
-    const t = q.trim().toLowerCase();
-    const rows = (videos ?? []).filter((v) =>
+  const search = useMemo(() => {
+    const pool = (videos ?? []).filter((v) =>
       (!status || v.status === status) &&
       (!provider || v.source.provider === provider) &&
-      (!featured || v.featured === (featured === 'yes')) &&
-      (!t || [v.title, ...v.products, ...v.authors, v.slug].join(' ').toLowerCase().includes(t)));
+      (!featured || v.featured === (featured === 'yes')));
+    return { pool, ...rankDocs(pool, q, indexVideo) };
+  }, [videos, q, status, provider, featured]);
+
+  const effectiveSort = sort || (search.hasQuery ? 'relevance' : 'published-desc');
+  const filtered = useMemo(() => {
+    const rows = search.pool.filter((v) => search.hits.has(v));
     // ISO timestamps sort correctly as strings. Ties fall back to title so the order is stable.
     const by = (a: string, b: string) => a.localeCompare(b);
     return rows.sort((a, b) =>
-      (sort === 'published-desc' ? by(b.publishedAt, a.publishedAt)
-        : sort === 'published-asc' ? by(a.publishedAt, b.publishedAt)
-          : by(b.updatedAt, a.updatedAt)) || a.title.localeCompare(b.title));
-  }, [videos, q, status, provider, featured, sort]);
+      (effectiveSort === 'relevance' ? (search.hits.get(b) ?? 0) - (search.hits.get(a) ?? 0) || by(b.publishedAt, a.publishedAt)
+        : effectiveSort === 'published-desc' ? by(b.publishedAt, a.publishedAt)
+          : effectiveSort === 'published-asc' ? by(a.publishedAt, b.publishedAt)
+            : by(b.updatedAt, a.updatedAt)) || a.title.localeCompare(b.title));
+  }, [search, effectiveSort]);
 
   const counts = useMemo(() => {
     const c: Record<string, number> = {};
@@ -75,12 +88,14 @@ export default function VideoList() {
           <option value="no">Not featured</option>
         </select>
         <select value={sort} onChange={(e) => setSort(e.target.value as SortKey)} aria-label="Sort by">
+          <option value="">{q.trim() ? 'Best match' : 'Upload date, newest first'}</option>
           <option value="published-desc">Upload date, newest first</option>
           <option value="published-asc">Upload date, oldest first</option>
           <option value="updated-desc">Last updated</option>
         </select>
       </div>
       {error && <p className="alert">{error}</p>}
+      {search.relaxed && filtered.length > 0 && <p className="muted small feat-note">No videos contain every word. Showing the closest matches.</p>}
       {featured === 'yes' && videos && (
         <p className="muted small feat-note">
           The home page shows the {HOME_FEATURED_SLOTS} newest <strong>active</strong> featured videos. {onHome.size} {onHome.size === 1 ? 'is' : 'are'} showing now, marked <span className="tag tag-home">On home page</span>.

@@ -83,6 +83,17 @@ export default function Browse({ status }: { status: 'active' | 'archived' }) {
 
   const active = FILTERS.filter((f) => params.get(f.param));
   const q = params.get('q') ?? '';
+  // Searches on the Videos page include archived videos, listed after the current ones.
+  const searchingArchive = status === 'active' && !!q.trim() && params.get('archive') !== '0';
+  const current = searchingArchive ? items.filter((v) => v.status !== 'archived') : items;
+  const fromArchive = searchingArchive ? items.filter((v) => v.status === 'archived') : [];
+  const archivedTotal = data?.archivedTotal ?? 0;
+  // Remount the search box only when the query changes from outside it (header search, back button),
+  // so typing in it doesn't lose focus each time the results update.
+  const typed = useRef(q);
+  const searchKeyRef = useRef(0);
+  if (q !== typed.current) { typed.current = q; searchKeyRef.current++; }
+  const searchKey = searchKeyRef.current;
 
   return (
     <div className="wrap browse">
@@ -95,7 +106,13 @@ export default function Browse({ status }: { status: 'active' | 'archived' }) {
               : <>Looking for older content? <Link to="/archive">Search the archive</Link>.</>}
           </p>
         </div>
-        <SearchBox key={q} initial={q} />
+        <SearchBox key={searchKey} initial={q} onSearch={(value) => {
+          if (value === q) return;
+          const p = new URLSearchParams(params);
+          if (value) p.set('q', value); else p.delete('q');
+          typed.current = value;
+          setParams(p, { replace: true });
+        }} />
       </div>
 
       <div className="browse-body">
@@ -128,11 +145,21 @@ export default function Browse({ status }: { status: 'active' | 'archived' }) {
               <option value="title">Title A-Z</option>
             </select>
           </label>
+          {status === 'active' && q.trim() && (
+            <label className="filter filter-check">
+              <input type="checkbox" checked={params.get('archive') !== '0'} onChange={(e) => set('archive', e.target.checked ? undefined : '0')} />
+              <span>Include archived videos</span>
+            </label>
+          )}
         </aside>
 
         <section className="results" aria-live="polite">
           <div className="results-bar">
-            <span className="muted">{data ? `${data.total} ${data.total === 1 ? 'result' : 'results'}` : ' '}</span>
+            <span className="muted">
+              {data ? `${data.total} ${data.total === 1 ? 'result' : 'results'}` : ' '}
+              {data && archivedTotal > 0 && archivedTotal < data.total ? ` (${archivedTotal} from the archive)` : ''}
+              {data && archivedTotal > 0 && archivedTotal === data.total ? ' (all from the archive)' : ''}
+            </span>
             <div className="active-filters">
               {active.map((f) => (
                 <button key={f.param} className="chip chip-x" onClick={() => set(f.param)} aria-label={`Remove filter ${labelFor(f.key, params.get(f.param)!)}`}>
@@ -143,7 +170,21 @@ export default function Browse({ status }: { status: 'active' | 'archived' }) {
             <button className="btn btn-light btn-sm show-filters" onClick={() => setShowFilters(!showFilters)} aria-expanded={showFilters}>Filters</button>
           </div>
           {error && <p className="alert">Something went wrong loading results.</p>}
-          {loading && !data ? <SkeletonGrid /> : items.length ? <CardGrid items={items} /> : !loading && (
+          {data?.relaxed && items.length > 0 && (
+            <p className="search-note" role="status">No videos contain every word of &ldquo;{q}&rdquo;. Showing the closest matches.</p>
+          )}
+          {loading && !data ? <SkeletonGrid /> : items.length ? (
+            <>
+              {current.length > 0 && <CardGrid items={current} />}
+              {fromArchive.length > 0 && (
+                <div className={`archive-results${current.length ? '' : ' only'}`}>
+                  <h2 className="archive-results-head">From the archive</h2>
+                  <p className="muted small">Older content kept for reference. Some products or versions may no longer be current.</p>
+                  <CardGrid items={fromArchive} />
+                </div>
+              )}
+            </>
+          ) : !loading && (
             <div className="empty">
               <h2>No videos match</h2>
               <p>Try fewer filters or a different search. You can also <Link to="/contact?type=suggest">suggest a video</Link>.</p>

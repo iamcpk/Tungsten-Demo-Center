@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, NavLink, useNavigate } from 'react-router-dom';
 import { brandAssetUrl, copyrightText, isInternal, useBranding, type BrandLink } from '../branding';
 
@@ -59,24 +59,39 @@ export function Footer() {
   );
 }
 
-export function SearchBox({ initial = '', large = false }: { initial?: string; large?: boolean }) {
+/**
+ * Search form. `onSearch` (used on the results pages) updates the results as the visitor types;
+ * without it, submitting goes to the Videos page.
+ */
+export function SearchBox({ initial = '', large = false, onSearch }: { initial?: string; large?: boolean; onSearch?: (q: string) => void }) {
   const b = useBranding();
   const [q, setQ] = useState(initial);
   const nav = useNavigate();
+  const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  useEffect(() => () => clearTimeout(timer.current), []);
+  const go = (value: string) => {
+    clearTimeout(timer.current);
+    if (onSearch) onSearch(value.trim());
+    else nav(value.trim() ? `/videos?q=${encodeURIComponent(value.trim())}` : '/videos');
+  };
   return (
     <form
       role="search"
       className={`search ${large ? 'search-lg' : ''}`}
-      onSubmit={(e) => {
-        e.preventDefault();
-        nav(q.trim() ? `/videos?q=${encodeURIComponent(q.trim())}` : '/videos');
-      }}
+      onSubmit={(e) => { e.preventDefault(); go(q); }}
     >
       <svg aria-hidden="true" viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M10 4a6 6 0 104.47 10l4.77 4.77 1.41-1.41L15.9 12.6A6 6 0 0010 4zm0 2a4 4 0 110 8 4 4 0 010-8z" /></svg>
       <input
         type="search"
         value={q}
-        onChange={(e) => setQ(e.target.value)}
+        onChange={(e) => {
+          const value = e.target.value;
+          setQ(value);
+          if (!onSearch) return;
+          clearTimeout(timer.current);
+          // Wait for a pause in typing so each keystroke doesn't fire a request.
+          timer.current = setTimeout(() => go(value), 350);
+        }}
         placeholder={b.home.searchPlaceholder}
         aria-label="Search videos"
         maxLength={200}

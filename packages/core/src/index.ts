@@ -8,4 +8,5 @@ export * from './media.js';
 export * from './email.js';
 export * from './schemas.js';
 export * from './catalog.js';
+export * from './search.js';
 export * from './branding.js';

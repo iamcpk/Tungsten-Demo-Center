@@ -45,6 +45,10 @@ export interface SearchResult {
   total: number;
   items: Video[];
   facets: Record<FacetKey, { value: string; count: number }[]>;
+  /** No video matched every word, so these are the closest matches. */
+  relaxed?: boolean;
+  /** How many results come from the archive (searches on the Videos page include it). */
+  archivedTotal?: number;
 }
 
 export interface SiteConfig {

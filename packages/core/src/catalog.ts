@@ -1,8 +1,10 @@
 import type { BusinessLine, Video, VideoStatus } from './types.js';
+import { cachedIndexer, matchDoc, parseQuery, rankDocs } from './search.js';
 
 export interface CatalogQuery {
   q?: string;
-  status?: VideoStatus | 'all';
+  /** One status, several, or 'all'. */
+  status?: VideoStatus | VideoStatus[] | 'all';
   businessLine?: BusinessLine;
   product?: string;
   vertical?: string;
@@ -21,35 +23,40 @@ export interface CatalogResult {
   total: number;
   items: Video[];
   facets: Facets;
+  /** No video matched every word, so these are the closest matches. */
+  relaxed?: boolean;
+  /** How many of the results are archived. */
+  archivedTotal?: number;
 }
 
 const FACETS: FacetKey[] = ['businessLines', 'products', 'verticals', 'authors', 'languages', 'categories'];
-
-function norm(s: string): string {
-  return s.normalize('NFKD').replace(/[̀-ͯ]/g, '').toLowerCase();
-}
+const BUSINESS_LINE_WORDS: Record<string, string> = { IA: 'Intelligent Automation', PA: 'Print Automation' };
 
 function stripTags(s: string): string {
-  return s.replace(/<[^>]*>/g, ' ');
+  return s.replace(/<[^>]*>/g, ' ').replace(/&[a-z#0-9]+;/gi, ' ');
 }
 
-/** Relevance score: title hits weigh most, then tags, then descriptions. 0 = no match. */
-export function scoreVideo(v: Video, terms: string[]): number {
-  if (!terms.length) return 1;
-  const title = norm(v.title);
-  const tags = norm([...v.products, ...v.keywords, ...v.authors, ...v.categories, ...v.verticals].join(' '));
-  const body = norm(`${v.shortDescription} ${stripTags(v.description)}`);
-  let score = 0;
-  for (const t of terms) {
-    const s = (title.includes(t) ? 10 : 0) + (tags.includes(t) ? 4 : 0) + (body.includes(t) ? 1 : 0);
-    if (s === 0) return 0; // every term must match somewhere
-    score += s;
-  }
-  return score;
+/** Search index per video object. Catalogue snapshots are replaced, never mutated, so this stays correct. */
+const indexVideo = cachedIndexer<Video>((v) => ({
+  title: v.title,
+  tags: [...v.products, ...v.keywords, ...v.authors, ...v.categories, ...v.verticals, ...v.businessLines.map((b) => BUSINESS_LINE_WORDS[b] ?? b)],
+  body: `${v.shortDescription} ${stripTags(v.description)}`,
+}));
+
+/** Relevance score for one video. 0 = no match. Kept for callers that score a single video. */
+export function scoreVideo(v: Video, query: string | string[]): number {
+  const q = parseQuery(Array.isArray(query) ? query.join(' ') : query);
+  if (!q.terms.length) return 1;
+  const m = matchDoc(q, indexVideo(v));
+  return m.matched === m.required ? m.score : 0;
+}
+
+function statusOk(v: Video, s: CatalogQuery['status']): boolean {
+  if (!s || s === 'all') return true;
+  return Array.isArray(s) ? s.includes(v.status) : v.status === s;
 }
 
 function matches(v: Video, q: CatalogQuery, skip?: FacetKey): boolean {
-  if (q.status && q.status !== 'all' && v.status !== q.status) return false;
   const checks: [FacetKey, string | undefined][] = [
     ['businessLines', q.businessLine],
     ['products', q.product],
@@ -69,23 +76,23 @@ function matches(v: Video, q: CatalogQuery, skip?: FacetKey): boolean {
  * In-memory search over the catalogue. The whole catalogue is a few thousand documents
  * at most, so this is faster and cheaper than a search service.
  * Facet counts for a dimension ignore that dimension's own filter, so users can switch value.
+ * When several statuses are searched, active videos come before archived ones.
  */
 export function searchCatalog(all: Video[], q: CatalogQuery): CatalogResult {
-  const terms = norm(q.q ?? '').split(/\s+/).filter((t) => t.length > 1).slice(0, 8);
-  const scored = new Map<string, number>();
-  const textMatched = all.filter((v) => {
-    const s = scoreVideo(v, terms);
-    if (s > 0) scored.set(v.id, s);
-    return s > 0;
-  });
+  const pool = all.filter((v) => statusOk(v, q.status));
+  const { hits, relaxed, hasQuery } = rankDocs(pool, q.q ?? '', indexVideo);
+  const textMatched = pool.filter((v) => hits.has(v));
 
   const filtered = textMatched.filter((v) => matches(v, q));
-  const sort = q.sort ?? (terms.length ? 'relevance' : 'newest');
+  const sort = q.sort ?? (hasQuery ? 'relevance' : 'newest');
+  const mixed = Array.isArray(q.status) && q.status.length > 1;
+  const rank = (v: Video) => (v.status === 'archived' ? 1 : 0);
   filtered.sort((a, b) => {
+    if (mixed && rank(a) !== rank(b)) return rank(a) - rank(b);
     if (sort === 'title') return a.title.localeCompare(b.title);
     if (sort === 'oldest') return a.publishedAt.localeCompare(b.publishedAt);
     if (sort === 'relevance') {
-      const d = (scored.get(b.id) ?? 0) - (scored.get(a.id) ?? 0);
+      const d = (hits.get(b) ?? 0) - (hits.get(a) ?? 0);
       if (d) return d;
     }
     return b.publishedAt.localeCompare(a.publishedAt);
@@ -103,7 +110,13 @@ export function searchCatalog(all: Video[], q: CatalogQuery): CatalogResult {
 
   const offset = Math.max(0, q.offset ?? 0);
   const limit = Math.min(100, Math.max(1, q.limit ?? 24));
-  return { total: filtered.length, items: filtered.slice(offset, offset + limit), facets };
+  return {
+    total: filtered.length,
+    items: filtered.slice(offset, offset + limit),
+    facets,
+    relaxed: relaxed || undefined,
+    archivedTotal: mixed ? filtered.filter((v) => v.status === 'archived').length : undefined,
+  };
 }
 
 /** Videos sharing the most products/categories with the given one. */
