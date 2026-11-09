@@ -13,7 +13,9 @@ COPY apps/admin apps/admin
 RUN npm run build -w @tdc/core && npm run build -w @tdc/admin
 
 FROM node:24-alpine
-ENV NODE_ENV=production PORT=8080
+# Recorded in backups so it's clear which build made them.
+ARG APP_VERSION=dev
+ENV NODE_ENV=production PORT=8080 APP_VERSION=$APP_VERSION
 WORKDIR /app
 COPY package.json package-lock.json ./
 COPY packages/core/package.json packages/core/

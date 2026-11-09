@@ -21,6 +21,16 @@
 - Preview links carry a random 192-bit token. Only its SHA-256 is stored; it expires after 24 hours and is cancelled by a new link, a publish or a discard. Preview pages are `noindex` and `no-store`.
 - Google Fonts send each visitor's IP address to Google. Self-hosted font upload is available; **confirm the font approach with Legal / Privacy before go-live.**
 
+## Backup and restore
+- Only `Admin` can see, create, download, restore or delete backups or change the nightly schedule. Every action is audit-logged with the user.
+- Backups are stored in the private `backups` container (no public access; Front Door serves only `media`). They contain internal notes and, if ticked, personal data.
+- Each backup's manifest records a SHA-256 of every data file and file list. A restore stops before changing anything if a checksum, document shape or file name is wrong (no absolute paths, no `..`, fixed prefixes only).
+- Every restore first takes a safety backup of the parts being restored. Restores never re-subscribe someone who unsubscribed after the backup, and Replace never deletes unsubscribe records.
+- One backup or restore runs at a time, enforced by a blob lease across app instances.
+- Importing from another storage account accepts only `https://<account>.blob.core.windows.net/<container>` URLs with a SAS that has Read and List. The SAS is used once and is never stored or logged.
+- Uploaded backup files are limited to 200 MB, must be a Demo Center data export, and are validated like any other backup.
+- Subscribers are excluded by default. **Agree how long backups containing personal data may be kept with Legal / Privacy**; nightly retention is configurable.
+
 ## Uploads
 - Browsers upload directly to Blob Storage with a **user-delegation SAS** (signed by Entra ID, never an account key). Each SAS covers one blob, allows create/write only, uses HTTPS only, and expires after 6 hours (videos) or 2 hours (attachments).
 - Allowed file extensions and maximum sizes are enforced server-side. Thumbnails go through the server, which checks their magic bytes.
@@ -42,6 +52,7 @@ Subscriber emails and form submissions are personal data. They are stored in the
 Dependabot (npm, Actions, Docker), `npm audit` in CI, and images built in GitHub Actions with SBOM and provenance attestations.
 
 ## Known trade-offs / hardening options
+- Backups live in the same storage account as the site. Soft delete (14 days) covers accidental deletion; for protection against losing the whole account, copy backups to a second account or add an immutability policy.
 - `media` container is publicly readable (required for Front Door Standard). Front Door Premium with Private Link would let it go private (higher cost).
 - Email-send permission uses Contributor scoped to the single ACS resource. A custom role could narrow this.
 - Cosmos DB and Storage use public endpoints protected by Entra RBAC. Private endpoints + VNet integration are an option for stricter environments.

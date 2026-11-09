@@ -9,4 +9,6 @@ export * from './email.js';
 export * from './schemas.js';
 export * from './catalog.js';
 export * from './search.js';
+export * from './backup.js';
+export * from './backup-storage.js';
 export * from './branding.js';

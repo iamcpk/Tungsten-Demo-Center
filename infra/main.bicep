@@ -149,6 +149,13 @@ resource uploadsContainer 'Microsoft.Storage/storageAccounts/blobServices/contai
   properties: { publicAccess: 'None' }
 }
 
+// Site backups made from the admin portal (Backup & restore page). Private: they hold internal notes and form data.
+resource backupsContainer 'Microsoft.Storage/storageAccounts/blobServices/containers@2023-05-01' = {
+  parent: blobService
+  name: 'backups'
+  properties: { publicAccess: 'None' }
+}
+
 resource mediaContainer 'Microsoft.Storage/storageAccounts/blobServices/containers@2023-05-01' = {
   parent: blobService
   name: 'media'

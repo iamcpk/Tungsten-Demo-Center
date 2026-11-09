@@ -60,6 +60,17 @@ Administrators change the public site's look and wording on the admin portal's *
 
 The subscription consent wording is deliberately not editable, because it is stored with each subscriber as a record of consent. Workflow and subscriber emails keep their fixed wording.
 
+## Backup and restore
+
+Administrators back up and restore the site on the admin portal's **Backup & restore** page.
+
+- **Choose what to include** with tick boxes: videos and their details, lists & tags, thumbnails, attachments, uploaded videos (playable streams and, optionally, the original files), branding settings, branding files, the approvers list, subscribers, the form inbox and import files. Subscribers are unticked by default because they are personal data.
+- **Where backups live:** a private `backups` container in the site's storage account. Data from Cosmos DB is saved as JSON, and files are copied inside Azure Storage, so large backups never pass through a browser. Each backup is a folder: `manifest.json` (written last, with a SHA-256 for every part), `data/`, and `files/`.
+- **Nightly backup** after a chosen hour (UTC, default 02:00) with the components you choose, keeping the last 14 by default. A blob lease ensures only one app instance runs it. Manual and imported backups are kept until deleted; the last 10 safety copies are kept.
+- **Restore** any ticked parts of a backup, by **Merge** (add and overwrite, keep anything newer) or **Replace** (make those parts match the backup exactly). A safety backup of the same parts is always taken first, so every restore can be undone. Backups are checked for damage or tampering before anything is written, and subscribers who unsubscribed after a backup stay unsubscribed.
+- **Moving to a new Azure instance:** deploy the template to the new subscription or resource group and set up Entra ID sign-in and roles (these are not in a backup). Make an **Everything** backup on the old site, then either import it on the new site with a short-lived container SAS URL (Read + List) for the old `backups` container, copy the folder with AzCopy (`azcopy copy "https://<old>.blob.core.windows.net/backups/<backup>?<sas>" "https://<new>.blob.core.windows.net/backups/" --recursive`), or, for data only, use **Download data** and upload the file. Then **Restore** it. All paths are relative, so content works on the new address.
+- Cosmos DB also keeps Azure's own continuous point-in-time backup (7 days). That restores into the same account and is the better tool after a regional outage; this page covers everything else, including moving the site.
+
 ## Architecture
 
 ```

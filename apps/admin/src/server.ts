@@ -16,6 +16,8 @@ import {
   BRANDING_HISTORY_LIMIT, BRAND_ASSET_RULES, DEFAULT_BRANDING, PREVIEW_HOURS, brandAssetBlob, brandAssetHeaders, brandAssetUrl,
   brandingPublishSchema, brandingSaveSchema, escapeHtml, fetchBrandAsset, hashToken, inspectBrandAsset, publishedSettings, randomToken,
   referencedAssets, withDefaults, type BrandAssetKind, type BrandingDoc,
+  BACKUP_COMPONENTS, BACKUP_FORMAT_VERSION, BACKUP_ID, BackupEngine, BackupError, COMPONENT_KEYS, createBackupStorage, parseContainerSasUrl,
+  type BackupComponentKey,
 } from '@tdc/core';
 import { authenticate, csrfGuard, requireRole, resolveAuthMode, withApprovers, type AdminUser, type ApproverSets, type ApproverSync } from './auth.js';
 import { actorId, canApprove, decisionBlockedReason, editBlockedReason, statusChangeError } from './workflow.js';
@@ -747,6 +749,80 @@ api.post('/branding/assets', admin, brandUpload.single('file'), wrap(async (req,
   res.status(201).json(r.asset);
 }));
 
+// ---------- backup and restore (administrators only) ----------
+const backups = new BackupEngine({
+  stores, storage: createBackupStorage(config), config, appVersion: process.env.APP_VERSION,
+  onRestored: (parts) => {
+    // Drop caches so restored data shows at once (the public site refreshes on its own within a minute).
+    if (parts.includes('approvers')) approverCache = undefined;
+    if (parts.includes('branding') || parts.includes('brandFiles')) faviconCache = undefined;
+  },
+});
+const componentList = z.array(z.enum(COMPONENT_KEYS as [BackupComponentKey, ...BackupComponentKey[]])).min(1).max(COMPONENT_KEYS.length);
+const backupId = (req: Request) => z.string().regex(BACKUP_ID, 'Invalid backup id').parse(req.params.id);
+
+api.get('/backups', admin, wrap(async (_req, res) => {
+  const [list, settings] = await Promise.all([backups.list(), backups.getSettings()]);
+  res.json({ backups: list, job: backups.currentJob(), settings, components: BACKUP_COMPONENTS, formatVersion: BACKUP_FORMAT_VERSION });
+}));
+
+api.get('/backups/estimate', admin, wrap(async (_req, res) => { res.json(await backups.estimate()); }));
+api.get('/backups/job', admin, (_req, res) => { res.json({ job: backups.currentJob() ?? null }); });
+
+api.post('/backups', admin, wrap(async (req, res) => {
+  const body = z.object({ components: componentList, note: z.string().max(300).optional() }).parse(req.body);
+  const id = await backups.startBackup({ components: body.components, note: body.note ? cleanText(body.note, 300) : undefined, by: actorId(req.user!) });
+  audit(req, 'backup.request', id);
+  res.status(202).json({ id, job: backups.currentJob() });
+}));
+
+api.post('/backups/:id/restore', admin, wrap(async (req, res) => {
+  const id = backupId(req);
+  const body = z.object({ components: componentList, mode: z.enum(['merge', 'replace']), confirm: z.literal('RESTORE') }).parse(req.body);
+  const r = await backups.startRestore({ id, components: body.components, mode: body.mode, by: actorId(req.user!) });
+  audit(req, `backup.restore-request.${body.mode}`, id);
+  res.status(202).json({ ...r, job: backups.currentJob() });
+}));
+
+api.delete('/backups/:id', admin, wrap(async (req, res) => {
+  const id = backupId(req);
+  await backups.delete(id, actorId(req.user!));
+  res.status(204).end();
+}));
+
+api.get('/backups/:id/download', admin, wrap(async (req, res) => {
+  const id = backupId(req);
+  const f = await backups.exportData(id);
+  audit(req, 'backup.download', id);
+  res.set({ 'Content-Type': 'application/json', 'Content-Disposition': `attachment; filename="${f.filename}"` }).send(f.body);
+}));
+
+const backupUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 200 * 1024 ** 2, files: 1 } });
+api.post('/backups/upload', admin, backupUpload.single('file'), wrap(async (req, res) => {
+  if (!req.file) throw new HttpError(400, 'Choose a backup file to upload');
+  const id = await backups.importDataFile(req.file.buffer, actorId(req.user!));
+  res.status(201).json({ id });
+}));
+
+api.post('/backups/import', admin, wrap(async (req, res) => {
+  const body = z.object({ containerUrl: z.string().max(2000), backupId: z.string().max(80) }).parse(req.body);
+  const url = parseContainerSasUrl(body.containerUrl);
+  if ('error' in url) throw new HttpError(400, url.error);
+  const id = await backups.startRemoteImport({ containerSasUrl: url.url, backupId: body.backupId.trim(), by: actorId(req.user!) });
+  // Only the account name is logged, never the SAS token.
+  audit(req, 'backup.import-request', `${new URL(url.url).hostname}/${body.backupId.trim()}`);
+  res.status(202).json({ id, job: backups.currentJob() });
+}));
+
+api.put('/backups/settings', admin, wrap(async (req, res) => {
+  const body = z.object({ nightly: z.boolean(), hourUtc: z.number().int().min(0).max(23), keep: z.number().int().min(1).max(90), components: componentList }).parse(req.body);
+  res.json(await backups.saveSettings(body, actorId(req.user!)));
+}));
+
+// Nightly backup: checked every 10 minutes. A blob lease stops two app instances running it at once.
+const backupTimer = setInterval(() => { backups.tick().catch((e) => console.error('nightly backup check failed', e)); }, 10 * 60_000);
+backupTimer.unref();
+
 // ---------- local development upload target (stands in for a Blob SAS URL) ----------
 if (media.mode === 'local' && media.writeLocal) {
   api.put('/local-upload/:container/*', creator, express.raw({ type: '*/*', limit: '2gb' }), wrap(async (req, res) => {
@@ -798,7 +874,7 @@ app.get('*', wrap(async (_req, res) => {
 app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
   void _next;
   if (err instanceof z.ZodError) return res.status(400).json({ error: err.issues.map((i) => `${i.path.join('.') || 'input'}: ${i.message}`).join('; ') });
-  if (err instanceof HttpError) return res.status(err.status).json({ error: err.message });
+  if (err instanceof HttpError || err instanceof BackupError) return res.status(err.status).json({ error: err.message });
   if (err instanceof multer.MulterError) return res.status(400).json({ error: err.message });
   console.error(err);
   res.status(500).json({ error: 'Something went wrong' });

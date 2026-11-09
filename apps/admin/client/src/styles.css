@@ -118,6 +118,36 @@ h1 .tag { vertical-align: middle; font-size: 0.75rem; margin-left: 6px; }
 .tag-archived, .tag-unsubscribed { background: #f0f0f0; color: var(--gray); }
 .tag-feat { background: var(--light-blue); color: var(--navy); }
 .tag-home { background: var(--navy); color: #fff; }
+
+/* Backup & restore */
+.bk-groups { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; margin: 14px 0; }
+.bk-group { border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px 6px; margin: 0; min-width: 0; }
+.bk-group legend, .bk-mode legend { font-weight: 700; color: var(--navy); padding: 0 6px; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.04em; }
+.bk-item { display: flex; gap: 10px; align-items: flex-start; padding: 8px 0; cursor: pointer; }
+.bk-item + .bk-item { border-top: 1px solid var(--line); }
+.bk-item input { margin-top: 3px; width: 16px; height: 16px; flex: none; accent-color: var(--blue-dark); }
+.bk-item strong { color: var(--navy); }
+.bk-count { margin-left: 8px; }
+.bk-desc { display: block; margin-top: 2px; }
+.bk-mode { border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px 6px; margin: 0 0 12px; }
+.bk-row { display: flex; gap: 16px; flex-wrap: wrap; align-items: flex-end; }
+.bk-row .field { min-width: 200px; }
+.bk-wide { flex: 1 1 420px; }
+.bk-id { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 0.72rem; word-break: break-all; }
+.bk-actions { white-space: nowrap; }
+.bk-actions .btn { margin: 2px 4px 2px 0; }
+.bk-job { border-left: 4px solid var(--blue-dark); }
+.bk-job-ok { border-left-color: var(--green); }
+.bk-job-err { border-left-color: var(--red); }
+.bk-job-head { display: flex; gap: 12px; align-items: baseline; flex-wrap: wrap; margin-bottom: 8px; }
+.bk-bar { height: 10px; border-radius: 999px; background: #eef1f5; overflow: hidden; margin: 6px 0; }
+.bk-bar span { display: block; height: 100%; background: var(--blue-dark); transition: width 0.4s ease; }
+.bk-restore { border: 2px solid var(--blue-dark); }
+.bk-steps { padding-left: 20px; line-height: 1.55; }
+.bk-steps li { margin-bottom: 6px; }
+.bk-steps ul { padding-left: 18px; margin: 4px 0; }
+.tag-pd { background: #fff4e5; color: #8a4b00; }
+.tag-err { background: #fdf0ef; color: var(--red); }
 .feat-note { margin: -4px 0 14px; }
 .feat-note .tag { margin-left: 2px; }
 

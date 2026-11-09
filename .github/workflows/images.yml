@@ -45,6 +45,8 @@ jobs:
           context: .
           file: docker/${{ matrix.app }}.Dockerfile
           push: true
+          build-args: |
+            APP_VERSION=${{ github.sha }}
           provenance: true
           sbom: true
           tags: |
