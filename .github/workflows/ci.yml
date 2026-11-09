@@ -15,7 +15,7 @@ jobs:
     outputs:
       present: ${{ steps.check.outputs.present }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - id: check
         run: if [ -f package-lock.json ]; then echo "present=true" >> "$GITHUB_OUTPUT"; else echo "present=false" >> "$GITHUB_OUTPUT"; fi
 
@@ -25,7 +25,7 @@ jobs:
     if: needs.lockfile.outputs.present == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v4
         with:
           node-version: 24
@@ -52,7 +52,7 @@ jobs:
   infra:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Bicep lint + check azuredeploy.json is up to date
         run: |
           az bicep install
