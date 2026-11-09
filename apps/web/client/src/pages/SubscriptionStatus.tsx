@@ -61,7 +61,8 @@ export function ConfirmSubscription() {
           : (
             <div className="panel">
               <h1>Confirm your subscription</h1>
-              <p>Press the button to start receiving emails when new videos are published on the Demo Center. You can unsubscribe at any time.</p>
+              <p>One more click so we know it's really you and not your mail filter. Some email security tools open links automatically, so we wait for you to press the button.</p>
+              <p>Once confirmed, we'll email you when new videos are published on the Demo Center. You can unsubscribe at any time.</p>
               {error && <p className="alert">{error}</p>}
               <button className="btn btn-primary" onClick={confirm} disabled={state === 'busy'}>{state === 'busy' ? 'Confirming...' : 'Confirm subscription'}</button>
             </div>
