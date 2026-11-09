@@ -83,8 +83,12 @@ export default function Browse({ status }: { status: 'active' | 'archived' }) {
 
   const active = FILTERS.filter((f) => params.get(f.param));
   const q = params.get('q') ?? '';
-  // Searches on the Videos page include archived videos (marked on their cards) unless turned off.
+  // Searches on the Videos page include archived videos unless turned off. The API returns every
+  // current video before any archived one, so splitting the loaded list keeps both in rank order.
   const archivedTotal = data?.archivedTotal ?? 0;
+  const current = items.filter((v) => v.status !== 'archived');
+  const fromArchive = status === 'active' ? items.filter((v) => v.status === 'archived') : [];
+  const shownCurrent = status === 'active' ? current : items;
   // Remount the search box only when the query changes from outside it (header search, back button),
   // so typing in it doesn't lose focus each time the results update.
   const typed = useRef(q);
@@ -170,7 +174,18 @@ export default function Browse({ status }: { status: 'active' | 'archived' }) {
           {data?.relaxed && items.length > 0 && (
             <p className="search-note" role="status">No videos contain every word of &ldquo;{q}&rdquo;. Showing the closest matches.</p>
           )}
-          {loading && !data ? <SkeletonGrid /> : items.length ? <CardGrid items={items} /> : !loading && (
+          {loading && !data ? <SkeletonGrid /> : items.length ? (
+            <>
+              {shownCurrent.length > 0 && <CardGrid items={shownCurrent} />}
+              {fromArchive.length > 0 && (
+                <section className={`archive-results${shownCurrent.length ? '' : ' only'}`} aria-label="From the archive">
+                  <h2 className="archive-results-head">From the archive <span className="muted">({archivedTotal})</span></h2>
+                  <p className="muted small">Older content kept for reference. Some products or versions may no longer be current.</p>
+                  <CardGrid items={fromArchive} />
+                </section>
+              )}
+            </>
+          ) : !loading && (
             <div className="empty">
               <h2>No videos match</h2>
               <p>Try fewer filters or a different search. You can also <Link to="/contact?type=suggest">suggest a video</Link>.</p>

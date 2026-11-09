@@ -99,7 +99,7 @@ test('four-letter words need an exact or partial match, not a typo match', () =>
   assert.deepEqual(find(docs, 'auth'), []);
 });
 
-test('catalogue search across statuses: current wins a tie, a strong archived match beats a weak current one', () => {
+test('catalogue search across statuses: every current video comes before every archived one, each in rank order', () => {
   const all = [
     video('old', { title: ECOPY, status: 'archived', publishedAt: '2025-01-01T00:00:00Z' }),
     video('new', { title: 'eCopy PDF Pro basics', publishedAt: '2026-03-01T00:00:00Z' }),
@@ -109,8 +109,14 @@ test('catalogue search across statuses: current wins a tie, a strong archived ma
   const r = searchCatalog(all, { q: 'ecopy', status: ['active', 'archived'] });
   assert.deepEqual(r.items.map((x) => x.id), ['new', 'old']);
   assert.equal(r.archivedTotal, 1);
+  // The archived video matches far better, but the weak current match still comes first.
   const strong = searchCatalog(all, { q: 'exchange connector', status: ['active', 'archived'] });
-  assert.deepEqual(strong.items.map((x) => x.id), ['old', 'weak']);
+  assert.deepEqual(strong.items.map((x) => x.id), ['weak', 'old']);
+  // Within the archive, best match first.
+  const more = [...all, video('old2', { title: 'Archived exchange notes', status: 'archived', description: 'connector' })];
+  assert.deepEqual(searchCatalog(more, { q: 'exchange connector', status: ['active', 'archived'] }).items.map((x) => x.id), ['weak', 'old', 'old2']);
+  // Other sorts keep the grouping too.
+  assert.deepEqual(searchCatalog(more, { q: 'exchange connector', status: ['active', 'archived'], sort: 'title' }).items.map((x) => x.id), ['weak', 'old2', 'old']);
   assert.equal(searchCatalog(all, { q: 'ecopy', status: 'active' }).total, 1);
   assert.equal(searchCatalog(all, { q: 'ecopy', status: 'archived' }).items[0].id, 'old');
 });

@@ -148,6 +148,11 @@ select:focus, input:focus, textarea:focus { outline: 0; border-color: var(--blue
 .filter-check { display: flex; align-items: center; gap: 8px; font-weight: 600; cursor: pointer; }
 .filter-check input { width: 16px; height: 16px; accent-color: var(--blue-dark); }
 .search-note { background: var(--light-blue); color: var(--navy); border-radius: 8px; padding: 10px 14px; margin: 0 0 16px; font-size: 0.9rem; }
+.archive-results { margin-top: 36px; padding-top: 24px; border-top: 1px solid var(--line); }
+.archive-results.only { margin-top: 0; padding-top: 0; border-top: 0; }
+.archive-results-head { font-size: 1.15rem; margin: 0 0 4px; }
+.archive-results-head .muted { font-weight: 400; }
+.archive-results > p.muted { margin: 0 0 16px; }
 .results-bar { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; min-height: 34px; flex-wrap: wrap; }
 .active-filters { display: flex; gap: 6px; flex-wrap: wrap; flex: 1; }
 .show-filters { display: none; }
