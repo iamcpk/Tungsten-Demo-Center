@@ -64,6 +64,8 @@ function TrendChart({ series, metric, label }: { series: Point[]; metric: ChartM
   const plotW = W - padL - 8, plotH = H - padB - padT;
   const bw = plotW / Math.max(1, series.length);
   const gap = bw > 6 ? 2 : 0;
+  // Thin columns even when only a few days are shown.
+  const barW = Math.max(1, Math.min(bw - gap, 28));
   const fmt = (v: number) => (metric === 'watchSeconds' ? fmtDuration(v) : fmtInt(v));
   const ticks = [0, max / 2, max];
   const labelEvery = Math.ceil(series.length / 8);
@@ -87,7 +89,7 @@ function TrendChart({ series, metric, label }: { series: Point[]; metric: ChartM
           return (
             <g key={p.day} onMouseEnter={() => setHover(i)}>
               <rect x={x} y={padT} width={bw} height={plotH} fill="transparent" />
-              {v > 0 && <path className={`an-bar${hover === i ? ' on' : ''}`} d={barPath(x + gap / 2, padT + plotH, Math.max(1, bw - gap), Math.max(1.5, bh))} />}
+              {v > 0 && <path className={`an-bar${hover === i ? ' on' : ''}`} d={barPath(x + (bw - barW) / 2, padT + plotH, barW, Math.max(1.5, bh))} />}
               {i % labelEvery === 0 && <text x={x + bw / 2} y={H - 6} textAnchor="middle" className="an-axis">{fmtDay(p.day).replace(/, \d{4}$/, '')}</text>}
             </g>
           );
