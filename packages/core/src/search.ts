@@ -116,8 +116,9 @@ function editDistance(a: string, b: string, max: number): number {
   return prev[b.length];
 }
 
+/** Short words get no typo allowance: "auth" would otherwise match "auto", "path", "math"... */
 function allowedTypos(len: number): number {
-  return len < 4 ? 0 : len < 8 ? 1 : 2;
+  return len < 5 ? 0 : len < 8 ? 1 : 2;
 }
 
 /** How well one term matches one field: 0 (no match) to 1 (whole word). */
@@ -157,6 +158,15 @@ export function matchDoc(q: ParsedQuery, d: DocIndex): Match {
       if (s > 0) matched++;
     }
     score += t.stop ? s * 0.1 : s;
+  }
+  // Words typed apart that the title or tags write as one: "share scan" -> "ShareScan", "token vault" -> "TokenVault".
+  for (let i = 0; i + 1 < q.terms.length; i++) {
+    const a = q.terms[i];
+    const b = q.terms[i + 1];
+    if (a.phrase || b.phrase) continue;
+    const joined = ` ${a.compact}${b.compact}`;
+    if (d.title.spaced.includes(joined)) score += 8;
+    else if (d.tags.spaced.includes(joined)) score += 4;
   }
   if (matched && q.spaced.length > 2) {
     if (d.title.spaced === ` ${q.spaced} `) score += 30;

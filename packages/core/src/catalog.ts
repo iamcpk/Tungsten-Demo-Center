@@ -30,6 +30,8 @@ export interface CatalogResult {
 }
 
 const FACETS: FacetKey[] = ['businessLines', 'products', 'verticals', 'authors', 'languages', 'categories'];
+/** Relevance multiplier for archived videos when current and archived videos are searched together. */
+const ARCHIVE_WEIGHT = 0.6;
 const BUSINESS_LINE_WORDS: Record<string, string> = { IA: 'Intelligent Automation', PA: 'Print Automation' };
 
 function stripTags(s: string): string {
@@ -76,7 +78,7 @@ function matches(v: Video, q: CatalogQuery, skip?: FacetKey): boolean {
  * In-memory search over the catalogue. The whole catalogue is a few thousand documents
  * at most, so this is faster and cheaper than a search service.
  * Facet counts for a dimension ignore that dimension's own filter, so users can switch value.
- * When several statuses are searched, active videos come before archived ones.
+ * When several statuses are searched, archived videos rank a little lower than current ones.
  */
 export function searchCatalog(all: Video[], q: CatalogQuery): CatalogResult {
   const pool = all.filter((v) => statusOk(v, q.status));
@@ -86,13 +88,14 @@ export function searchCatalog(all: Video[], q: CatalogQuery): CatalogResult {
   const filtered = textMatched.filter((v) => matches(v, q));
   const sort = q.sort ?? (hasQuery ? 'relevance' : 'newest');
   const mixed = Array.isArray(q.status) && q.status.length > 1;
-  const rank = (v: Video) => (v.status === 'archived' ? 1 : 0);
+  // Archived videos still rank by relevance, so a strong archived match beats a weak current one,
+  // but a current video wins when the two match about equally well.
+  const relevance = (v: Video) => (hits.get(v) ?? 0) * (mixed && v.status === 'archived' ? ARCHIVE_WEIGHT : 1);
   filtered.sort((a, b) => {
-    if (mixed && rank(a) !== rank(b)) return rank(a) - rank(b);
     if (sort === 'title') return a.title.localeCompare(b.title);
     if (sort === 'oldest') return a.publishedAt.localeCompare(b.publishedAt);
     if (sort === 'relevance') {
-      const d = (hits.get(b) ?? 0) - (hits.get(a) ?? 0);
+      const d = relevance(b) - relevance(a);
       if (d) return d;
     }
     return b.publishedAt.localeCompare(a.publishedAt);

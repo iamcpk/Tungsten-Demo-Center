@@ -83,10 +83,7 @@ export default function Browse({ status }: { status: 'active' | 'archived' }) {
 
   const active = FILTERS.filter((f) => params.get(f.param));
   const q = params.get('q') ?? '';
-  // Searches on the Videos page include archived videos, listed after the current ones.
-  const searchingArchive = status === 'active' && !!q.trim() && params.get('archive') !== '0';
-  const current = searchingArchive ? items.filter((v) => v.status !== 'archived') : items;
-  const fromArchive = searchingArchive ? items.filter((v) => v.status === 'archived') : [];
+  // Searches on the Videos page include archived videos (marked on their cards) unless turned off.
   const archivedTotal = data?.archivedTotal ?? 0;
   // Remount the search box only when the query changes from outside it (header search, back button),
   // so typing in it doesn't lose focus each time the results update.
@@ -173,18 +170,7 @@ export default function Browse({ status }: { status: 'active' | 'archived' }) {
           {data?.relaxed && items.length > 0 && (
             <p className="search-note" role="status">No videos contain every word of &ldquo;{q}&rdquo;. Showing the closest matches.</p>
           )}
-          {loading && !data ? <SkeletonGrid /> : items.length ? (
-            <>
-              {current.length > 0 && <CardGrid items={current} />}
-              {fromArchive.length > 0 && (
-                <div className={`archive-results${current.length ? '' : ' only'}`}>
-                  <h2 className="archive-results-head">From the archive</h2>
-                  <p className="muted small">Older content kept for reference. Some products or versions may no longer be current.</p>
-                  <CardGrid items={fromArchive} />
-                </div>
-              )}
-            </>
-          ) : !loading && (
+          {loading && !data ? <SkeletonGrid /> : items.length ? <CardGrid items={items} /> : !loading && (
             <div className="empty">
               <h2>No videos match</h2>
               <p>Try fewer filters or a different search. You can also <Link to="/contact?type=suggest">suggest a video</Link>.</p>

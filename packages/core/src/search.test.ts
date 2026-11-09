@@ -86,15 +86,31 @@ function video(id: string, over: Partial<Video> = {}): Video {
   };
 }
 
-test('catalogue search across statuses lists current videos before archived ones', () => {
+test('joined words rank first: "share scan" finds ShareScan before SharePoint scanning', () => {
+  const docs: SearchDoc[] = [
+    { title: 'Scan to SharePoint with Printix', tags: [], body: '' },
+    { title: 'eCopy ShareScan basics', tags: [], body: '' },
+  ];
+  assert.equal(find(docs, 'share scan')[0], 'eCopy ShareScan basics');
+});
+
+test('four-letter words need an exact or partial match, not a typo match', () => {
+  const docs: SearchDoc[] = [{ title: 'Intelligent Automation overview', tags: [], body: '' }];
+  assert.deepEqual(find(docs, 'auth'), []);
+});
+
+test('catalogue search across statuses: current wins a tie, a strong archived match beats a weak current one', () => {
   const all = [
     video('old', { title: ECOPY, status: 'archived', publishedAt: '2025-01-01T00:00:00Z' }),
     video('new', { title: 'eCopy PDF Pro basics', publishedAt: '2026-03-01T00:00:00Z' }),
+    video('weak', { title: 'Scanning tips', description: 'Mentions the exchange and a connector.' }),
     video('draft', { title: 'eCopy draft', status: 'draft' }),
   ];
   const r = searchCatalog(all, { q: 'ecopy', status: ['active', 'archived'] });
   assert.deepEqual(r.items.map((x) => x.id), ['new', 'old']);
   assert.equal(r.archivedTotal, 1);
+  const strong = searchCatalog(all, { q: 'exchange connector', status: ['active', 'archived'] });
+  assert.deepEqual(strong.items.map((x) => x.id), ['old', 'weak']);
   assert.equal(searchCatalog(all, { q: 'ecopy', status: 'active' }).total, 1);
   assert.equal(searchCatalog(all, { q: 'ecopy', status: 'archived' }).items[0].id, 'old');
 });
