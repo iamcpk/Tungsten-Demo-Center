@@ -101,7 +101,8 @@ const parse = (data: unknown): Record<string, unknown> | undefined => {
 /** Listens to a Vimeo player iframe. Returns a cleanup function. */
 export function watchVimeo(frame: HTMLIFrameElement, t: WatchTracker): () => void {
   const post = (msg: object) => frame.contentWindow?.postMessage(JSON.stringify(msg), 'https://player.vimeo.com');
-  const subscribe = () => { for (const value of ['play', 'pause', 'ended', 'timeupdate']) post({ method: 'addEventListener', value }); };
+  // The embed answers with its own event names ("playProgress", "finish"); both spellings are handled.
+  const subscribe = () => { for (const value of ['play', 'pause', 'ended', 'finish', 'timeupdate', 'playProgress']) post({ method: 'addEventListener', value }); };
   const onMsg = (ev: MessageEvent) => {
     if (ev.origin !== 'https://player.vimeo.com' || ev.source !== frame.contentWindow) return;
     const m = parse(ev.data);
@@ -109,9 +110,9 @@ export function watchVimeo(frame: HTMLIFrameElement, t: WatchTracker): () => voi
     switch (m?.event) {
       case 'ready': subscribe(); break;
       case 'play': t.play(); break;
-      case 'timeupdate': if (typeof data.seconds === 'number') t.time(data.seconds, data.duration); break;
+      case 'timeupdate': case 'playProgress': if (typeof data.seconds === 'number') t.time(data.seconds, data.duration); break;
       case 'pause': t.pause(); break;
-      case 'ended': t.ended(); break;
+      case 'ended': case 'finish': t.ended(); break;
     }
   };
   window.addEventListener('message', onMsg);
