@@ -91,8 +91,8 @@ export default function BackupPage() {
   }, []);
 
   useEffect(() => {
-    void load();
-    api.get<Estimate>('/api/backups/estimate').then(setEstimate).catch(() => undefined);
+    // The size estimate scans every file, so fetch it after the list so the page appears quickly.
+    void load().then(() => api.get<Estimate>('/api/backups/estimate').then(setEstimate).catch(() => undefined));
     return () => clearInterval(poll.current);
   }, [load]);
 
@@ -284,7 +284,7 @@ function RestorePanel({ backup, components, disabled, onCancel, onRestore }: {
       </p>
       <label className="field">
         <span>Type RESTORE to confirm</span>
-        <input value={confirmText} onChange={(e) => setConfirmText(e.target.value)} autoComplete="off" />
+        <input value={confirmText} onChange={(e) => setConfirmText(e.target.value)} autoComplete="off" aria-label="Type RESTORE to confirm" />
       </label>
       <div className="actions">
         <button type="button" className={`btn ${mode === 'replace' ? 'btn-danger' : 'btn-primary'}`} disabled={disabled || !sel.size || confirmText !== 'RESTORE'}
