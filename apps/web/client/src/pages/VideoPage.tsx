@@ -1,10 +1,12 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { Player } from '../components/Player';
 import { CardGrid } from '../components/VideoCard';
 import { useJson, useSiteConfig, useTitle } from '../hooks';
 import { BUSINESS_LINE_LABELS, formatBytes, formatDate, mediaUrl, type Video } from '../api';
 import NotFound from './NotFound';
+import { setTrackingEnabled, trackView } from '../analytics';
+import { useBrandState } from '../branding';
 
 export default function VideoPage() {
   const { slug } = useParams();
@@ -12,6 +14,11 @@ export default function VideoPage() {
   const { data, loading, error } = useJson<{ video: Video; related: Video[] }>(`/api/videos/${encodeURIComponent(slug ?? '')}`);
   const [copied, setCopied] = useState(false);
   useTitle(data?.video.pageTitle || data?.video.title || '');
+  const { preview } = useBrandState();
+  const videoId = data?.video.id;
+  // One anonymous page view per video opened. Branding previews are not counted.
+  useEffect(() => { setTrackingEnabled(!preview); }, [preview]);
+  useEffect(() => { if (videoId && !preview) trackView(videoId); }, [videoId, preview]);
 
   if (error === 'not-found') return <NotFound />;
   if (error) return <div className="wrap section"><p className="alert">We couldn't load this video.</p></div>;
@@ -42,7 +49,7 @@ export default function VideoPage() {
 
       <div className="video-layout">
         <div>
-          <Player v={v} />
+          <Player key={v.id} v={v} />
           <h1 className="video-title">{v.title}</h1>
           <div className="video-sub">
             <span className="muted">{formatDate(v.publishedAt)}</span>

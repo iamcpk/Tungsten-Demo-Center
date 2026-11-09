@@ -11,6 +11,7 @@ import {
   randomToken, relatedVideos, searchCatalog, subscribeSchema, toPublicVideo, type CatalogQuery, type Submission,
   type Subscriber, type SubmissionType, type Video, EMPTY_TAXONOMY, brandAssetHeaders, brandAssetUrl, brandDataScript, brandHeadTags,
   fetchBrandAsset, previewSettings, publishedSettings, type Branding, type BrandingDoc,
+  AnalyticsRecorder, createAnalyticsWriter, isLikelyBot, parseTrackBatch,
 } from '@tdc/core';
 
 const config = loadConfig();
@@ -94,10 +95,34 @@ app.use(express.json({ limit: '32kb' }));
 
 /** App Service puts "ip:port" in X-Forwarded-For; strip the port so limits are per client. */
 const clientKey = (req: Request) => (req.ip ?? 'unknown').replace(/:\d+$/, '');
+const trackLimiter = rateLimit({ windowMs: 60_000, limit: 60, standardHeaders: 'draft-7', legacyHeaders: false, keyGenerator: clientKey });
 const formLimiter = rateLimit({ windowMs: 10 * 60_000, limit: 5, standardHeaders: 'draft-7', legacyHeaders: false, keyGenerator: clientKey });
 const apiLimiter = rateLimit({ windowMs: 60_000, limit: 300, standardHeaders: 'draft-7', legacyHeaders: false, keyGenerator: clientKey });
 
 app.get('/healthz', (_req, res) => res.json({ ok: true, videos: catalog.length }));
+
+// ---------- anonymous video analytics ----------
+// Only per-video counts are kept (see packages/core/src/analytics.ts). The IP address is used by the
+// rate limiter in memory and the user agent to drop bots; neither is stored or logged.
+const analytics = new AnalyticsRecorder(createAnalyticsWriter(config, stores));
+const flushAnalytics = () => analytics.flush().catch((e) => console.error('analytics flush failed', (e as Error).message));
+setInterval(flushAnalytics, 60_000).unref();
+for (const sig of ['SIGTERM', 'SIGINT'] as const) {
+  process.once(sig, () => { void flushAnalytics().finally(() => process.exit(0)); setTimeout(() => process.exit(0), 5_000).unref(); });
+}
+
+app.post('/api/track', trackLimiter, async (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  // Only the site's own pages may report (stops other sites inflating the numbers from visitors' browsers).
+  const site = req.get('sec-fetch-site');
+  if (site && site !== 'same-origin') return res.status(403).end();
+  if (isLikelyBot(req.get('user-agent'))) return res.status(204).end();
+  const ids = new Set((await getCatalog()).map((v) => v.id.toLowerCase()));
+  const delta = parseTrackBatch(req.body, (id) => ids.has(id));
+  if (!delta) return res.status(400).json({ error: 'Invalid request' });
+  analytics.record(delta);
+  res.status(204).end();
+});
 
 // ---------- public read API ----------
 const api = express.Router();

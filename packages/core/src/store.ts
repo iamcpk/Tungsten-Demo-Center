@@ -5,6 +5,7 @@ import { CONTAINERS, type CoreConfig } from './config.js';
 import { getCredential } from './credential.js';
 import type { ApproverList, Subscriber, Submission, Taxonomy, Video } from './types.js';
 import type { BrandingDoc } from './branding.js';
+import type { AnalyticsDoc, AnalyticsWriter } from './analytics.js';
 
 export interface Doc {
   id: string;
@@ -114,6 +115,8 @@ export interface Stores {
   branding: Store<BrandingDoc>;
   subscribers: Store<Subscriber>;
   submissions: Store<Submission>;
+  /** Anonymous daily view and watch-time totals. Write through createAnalyticsWriter. */
+  analytics: Store<AnalyticsDoc>;
 }
 
 export function createStores(config: CoreConfig): Stores {
@@ -126,6 +129,7 @@ export function createStores(config: CoreConfig): Stores {
       branding: new LocalStore<BrandingDoc>(f('branding')),
       subscribers: new LocalStore<Subscriber>(f(CONTAINERS.subscribers)),
       submissions: new LocalStore<Submission>(f(CONTAINERS.submissions)),
+      analytics: new LocalStore<AnalyticsDoc>(f(CONTAINERS.analytics)),
     };
   }
   // Entra ID (managed identity) only; Cosmos local key auth is disabled in the template.
@@ -138,6 +142,52 @@ export function createStores(config: CoreConfig): Stores {
     branding: new CosmosStore<BrandingDoc>(db.container(CONTAINERS.meta)),
     subscribers: new CosmosStore<Subscriber>(db.container(CONTAINERS.subscribers)),
     submissions: new CosmosStore<Submission>(db.container(CONTAINERS.submissions)),
+    analytics: new CosmosStore<AnalyticsDoc>(db.container(CONTAINERS.analytics)),
+  };
+}
+
+/** ETag-checked writes for analytics totals, which several app instances update at once. */
+export function createAnalyticsWriter(config: CoreConfig, stores: Stores): AnalyticsWriter {
+  if (config.dataMode === 'local') {
+    // One process in local development: a version number stands in for the ETag.
+    const versions = new Map<string, number>();
+    return {
+      async read(id) {
+        const doc = await stores.analytics.get(id);
+        return doc ? { doc, etag: String(versions.get(id) ?? 0) } : undefined;
+      },
+      async write(doc, etag) {
+        const exists = !!(await stores.analytics.get(doc.id));
+        if (etag === undefined ? exists : !exists || String(versions.get(doc.id) ?? 0) !== etag) return false;
+        versions.set(doc.id, (versions.get(doc.id) ?? 0) + 1);
+        await stores.analytics.upsert(doc);
+        return true;
+      },
+    };
+  }
+  const client = new CosmosClient({ endpoint: config.cosmosEndpoint!, aadCredentials: getCredential(config) });
+  const c = client.database(config.cosmosDatabase).container(CONTAINERS.analytics);
+  return {
+    async read(id) {
+      try {
+        const { resource, etag } = await c.item(id, id).read();
+        return resource ? { doc: strip(resource as unknown as AnalyticsDoc), etag } : undefined;
+      } catch (e) {
+        if ((e as { code?: number }).code === 404) return undefined;
+        throw e;
+      }
+    },
+    async write(doc, etag) {
+      try {
+        if (etag === undefined) await c.items.create(doc as unknown as Record<string, unknown>);
+        else await c.item(doc.id, doc.id).replace(doc as unknown as Record<string, unknown>, { accessCondition: { type: 'IfMatch', condition: etag } });
+        return true;
+      } catch (e) {
+        const code = (e as { code?: number }).code;
+        if (code === 409 || code === 412) return false;
+        throw e;
+      }
+    },
   };
 }
 

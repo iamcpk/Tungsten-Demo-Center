@@ -36,7 +36,7 @@ export type BackupTrigger = 'manual' | 'nightly' | 'pre-restore' | 'uploaded' | 
 export const BACKUP_ID = /^\d{8}T\d{9}Z-(manual|nightly|pre-restore|uploaded|imported)-[a-z0-9]{6}$/;
 
 // ---------- components ----------
-export type DataComponent = 'videos' | 'taxonomy' | 'approvers' | 'branding' | 'subscribers' | 'submissions';
+export type DataComponent = 'videos' | 'taxonomy' | 'approvers' | 'branding' | 'subscribers' | 'submissions' | 'analytics';
 export type FileComponent = 'thumbnails' | 'attachments' | 'brandFiles' | 'videoStreams' | 'videoOriginals' | 'importFiles';
 export type BackupComponentKey = DataComponent | FileComponent;
 
@@ -65,6 +65,7 @@ export const BACKUP_COMPONENTS: BackupComponent[] = [
   { key: 'approvers', label: 'Approvers list', description: 'People added on the Approvers page. Entra ID roles are managed in Entra and are not part of a backup.', group: 'Site settings', kind: 'data', defaultOn: true },
   { key: 'subscribers', label: 'Subscribers', description: 'Email subscribers and their product interests. Personal data: include only when you need it.', group: 'People', kind: 'data', defaultOn: false, personalData: true },
   { key: 'submissions', label: 'Form inbox', description: 'Contact, suggest-a-video and demo requests. Contains names and email addresses.', group: 'People', kind: 'data', defaultOn: true, personalData: true },
+  { key: 'analytics', label: 'Video analytics', description: 'Anonymous daily view and watch-time totals for each video. No personal data.', group: 'Other', kind: 'data', defaultOn: true },
   { key: 'importFiles', label: 'Import files', description: 'Files and reports from the original site import. Rarely needed.', group: 'Other', kind: 'files', defaultOn: false },
 ];
 export const COMPONENT_KEYS = BACKUP_COMPONENTS.map((c) => c.key);
@@ -72,7 +73,7 @@ export const DEFAULT_COMPONENTS = BACKUP_COMPONENTS.filter((c) => c.defaultOn).m
 const componentOf = (k: BackupComponentKey) => BACKUP_COMPONENTS.find((c) => c.key === k)!;
 
 /** Whole containers, or single documents (all in the Cosmos "meta" container; separate files in local dev). */
-type DataSource = { store: 'videos' | 'subscribers' | 'submissions' } | { single: 'meta' | 'approvers' | 'branding'; meta: string };
+type DataSource = { store: 'videos' | 'subscribers' | 'submissions' | 'analytics' } | { single: 'meta' | 'approvers' | 'branding'; meta: string };
 const DATA_SOURCES: Record<DataComponent, DataSource> = {
   videos: { store: 'videos' },
   taxonomy: { single: 'meta', meta: 'taxonomy' },
@@ -80,6 +81,7 @@ const DATA_SOURCES: Record<DataComponent, DataSource> = {
   branding: { single: 'branding', meta: 'branding' },
   subscribers: { store: 'subscribers' },
   submissions: { store: 'submissions' },
+  analytics: { store: 'analytics' },
 };
 
 const UUID_FOLDER = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\//i;
@@ -228,6 +230,11 @@ export function docProblem(key: DataComponent, d: unknown): string | undefined {
       return ['pending', 'confirmed', 'unsubscribed'].includes(d.status as string) ? undefined : 'invalid status';
     case 'submissions':
       return ['contact', 'suggest', 'demo'].includes(d.type as string) ? undefined : 'invalid form type';
+    case 'analytics': {
+      if (!isObj(d.videos) || !Object.values(d.videos).every((c) => isObj(c) && Object.values(c).every((n) => typeof n === 'number' && Number.isFinite(n) && n >= 0))) return 'counts are not valid';
+      if (d.kind === 'totals') return d.id === 'totals' ? undefined : 'wrong id';
+      return d.kind === 'day' && str(d.day) && d.id === `day-${d.day as string}` ? undefined : 'not an analytics day';
+    }
   }
 }
 

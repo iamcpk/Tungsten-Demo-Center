@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.48.1.52935",
-      "templateHash": "15251236241748831111"
+      "templateHash": "2234862268287706921"
     }
   },
   "parameters": {
@@ -446,6 +446,26 @@
       ]
     },
     {
+      "type": "Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers",
+      "apiVersion": "2024-11-15",
+      "name": "[format('{0}/{1}/{2}', variables('names').cosmos, variables('dbName'), 'analytics')]",
+      "properties": {
+        "resource": {
+          "id": "analytics",
+          "partitionKey": {
+            "paths": [
+              "/id"
+            ],
+            "kind": "Hash"
+          },
+          "defaultTtl": -1
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.DocumentDB/databaseAccounts/sqlDatabases', variables('names').cosmos, variables('dbName'))]"
+      ]
+    },
+    {
       "type": "Microsoft.DocumentDB/databaseAccounts/sqlRoleAssignments",
       "apiVersion": "2024-11-15",
       "name": "[format('{0}/{1}', variables('names').cosmos, guid(resourceId('Microsoft.DocumentDB/databaseAccounts', variables('names').cosmos), resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-id-web-{1}', parameters('namePrefix'), variables('short'))), 'reader'))]",
@@ -485,6 +505,21 @@
       },
       "dependsOn": [
         "containers",
+        "[resourceId('Microsoft.DocumentDB/databaseAccounts', variables('names').cosmos)]",
+        "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-id-web-{1}', parameters('namePrefix'), variables('short')))]"
+      ]
+    },
+    {
+      "type": "Microsoft.DocumentDB/databaseAccounts/sqlRoleAssignments",
+      "apiVersion": "2024-11-15",
+      "name": "[format('{0}/{1}', variables('names').cosmos, guid(resourceId('Microsoft.DocumentDB/databaseAccounts', variables('names').cosmos), resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-id-web-{1}', parameters('namePrefix'), variables('short'))), 'analytics'))]",
+      "properties": {
+        "roleDefinitionId": "[format('{0}/sqlRoleDefinitions/{1}', resourceId('Microsoft.DocumentDB/databaseAccounts', variables('names').cosmos), variables('roles').cosmosContributor)]",
+        "principalId": "[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-id-web-{1}', parameters('namePrefix'), variables('short'))), '2023-01-31').principalId]",
+        "scope": "[format('{0}/colls/analytics', variables('dbScope'))]"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers', variables('names').cosmos, variables('dbName'), 'analytics')]",
         "[resourceId('Microsoft.DocumentDB/databaseAccounts', variables('names').cosmos)]",
         "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-id-web-{1}', parameters('namePrefix'), variables('short')))]"
       ]

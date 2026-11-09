@@ -62,7 +62,7 @@ function video(id: string, title: string): Video {
 
 function setup() {
   const stores = {
-    videos: new MemStore(), meta: new MemStore(), approvers: new MemStore(), branding: new MemStore(), subscribers: new MemStore(), submissions: new MemStore(),
+    videos: new MemStore(), meta: new MemStore(), approvers: new MemStore(), branding: new MemStore(), subscribers: new MemStore(), submissions: new MemStore(), analytics: new MemStore(),
   } as unknown as Stores & Record<string, MemStore<Doc>>;
   const storage = new MemStorage();
   const restored: BackupComponentKey[][] = [];

@@ -223,9 +223,16 @@ resource containers 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containe
   properties: { resource: { id: c, partitionKey: { paths: ['/id'], kind: 'Hash' } } }
 }]
 
+// Anonymous video analytics: daily totals per video. Per-document TTL removes days older than 25 months.
+resource analyticsContainer 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2024-11-15' = {
+  parent: db
+  name: 'analytics'
+  properties: { resource: { id: 'analytics', partitionKey: { paths: ['/id'], kind: 'Hash' }, defaultTtl: -1 } }
+}
+
 var dbScope = '${cosmos.id}/dbs/${dbName}'
 
-// Public site: read everything, write only subscribers + submissions.
+// Public site: read everything, write only subscribers, submissions and analytics.
 resource cosmosWebRead 'Microsoft.DocumentDB/databaseAccounts/sqlRoleAssignments@2024-11-15' = {
   parent: cosmos
   name: guid(cosmos.id, webId.id, 'reader')
@@ -242,6 +249,12 @@ resource cosmosWebForms 'Microsoft.DocumentDB/databaseAccounts/sqlRoleAssignment
   name: guid(cosmos.id, webId.id, 'submissions')
   properties: { roleDefinitionId: '${cosmos.id}/sqlRoleDefinitions/${roles.cosmosContributor}', principalId: webId.properties.principalId, scope: '${dbScope}/colls/submissions' }
   dependsOn: [containers]
+}
+resource cosmosWebAnalytics 'Microsoft.DocumentDB/databaseAccounts/sqlRoleAssignments@2024-11-15' = {
+  parent: cosmos
+  name: guid(cosmos.id, webId.id, 'analytics')
+  properties: { roleDefinitionId: '${cosmos.id}/sqlRoleDefinitions/${roles.cosmosContributor}', principalId: webId.properties.principalId, scope: '${dbScope}/colls/analytics' }
+  dependsOn: [analyticsContainer]
 }
 resource cosmosAdmin 'Microsoft.DocumentDB/databaseAccounts/sqlRoleAssignments@2024-11-15' = {
   parent: cosmos

@@ -25,6 +25,7 @@ export const CONTAINERS = {
   meta: 'meta',
   subscribers: 'subscribers',
   submissions: 'submissions',
+  analytics: 'analytics',
 } as const;
 
 export const BLOB_CONTAINERS = {

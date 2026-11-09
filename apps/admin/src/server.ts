@@ -18,6 +18,8 @@ import {
   referencedAssets, withDefaults, type BrandAssetKind, type BrandingDoc,
   BACKUP_COMPONENTS, BACKUP_FORMAT_VERSION, BACKUP_ID, BackupEngine, BackupError, COMPONENT_KEYS, createBackupStorage, parseContainerSasUrl,
   type BackupComponentKey,
+  ANALYTICS_RETENTION_DAYS, addDays, dayDocId, dayKey, daysBetween, earliestDay, isDay, summarise, withRates,
+  type AnalyticsDayDoc, type AnalyticsTotalsDoc,
 } from '@tdc/core';
 import { authenticate, csrfGuard, requireRole, resolveAuthMode, withApprovers, type AdminUser, type ApproverSets, type ApproverSync } from './auth.js';
 import { actorId, canApprove, decisionBlockedReason, editBlockedReason, statusChangeError } from './workflow.js';
@@ -749,6 +751,87 @@ api.post('/branding/assets', admin, brandUpload.single('file'), wrap(async (req,
   res.status(201).json(r.asset);
 }));
 
+// ---------- video analytics (approvers and administrators; anonymous counts only) ----------
+// Days before yesterday no longer change, so they are cached. Today and yesterday are always re-read
+// (the public site adds to them about once a minute, and late writes can land just after midnight).
+const dayCache = new Map<string, AnalyticsDayDoc | null>();
+async function readDays(days: string[], today: string): Promise<(AnalyticsDayDoc | undefined)[]> {
+  const settled = addDays(today, -1);
+  const out = new Array<AnalyticsDayDoc | undefined>(days.length);
+  let i = 0;
+  await Promise.all(Array.from({ length: Math.min(16, days.length) }, async () => {
+    while (i < days.length) {
+      const n = i++;
+      const day = days[n];
+      const cached = day < settled ? dayCache.get(day) : undefined;
+      if (cached !== undefined) { out[n] = cached ?? undefined; continue; }
+      const doc = (await stores.analytics.get(dayDocId(day))) as AnalyticsDayDoc | undefined;
+      if (day < settled) {
+        if (dayCache.size > ANALYTICS_RETENTION_DAYS + 40) dayCache.delete(dayCache.keys().next().value!);
+        dayCache.set(day, doc ?? null);
+      }
+      out[n] = doc;
+    }
+  }));
+  return out;
+}
+
+/** Resolves ?from=&to= (YYYY-MM-DD, UTC) into a range inside the data that exists. Default: the last 30 days. */
+async function analyticsRange(q: Request['query']) {
+  const today = dayKey(new Date());
+  const totals = (await stores.analytics.get('totals')) as AnalyticsTotalsDoc | undefined;
+  const earliest = earliestDay(today, totals?.since ?? today);
+  let to = isDay(q.to) ? q.to : today;
+  let from = isDay(q.from) ? q.from : addDays(to, -29);
+  if (to > today) to = today;
+  if (from < earliest) from = earliest;
+  if (from > to) from = to;
+  return { today, earliest, since: totals?.since, totals, from, to };
+}
+
+api.get('/analytics', approver, wrap(async (req, res) => {
+  const r = await analyticsRange(req.query);
+  const days = daysBetween(r.from, r.to);
+  const [docs, videos] = await Promise.all([readDays(days, r.today), stores.videos.list()]);
+  const cur = summarise(docs, days);
+
+  // The same number of days just before, for comparison (only the part that has data).
+  const prevTo = addDays(r.from, -1);
+  let previous: { from: string; to: string; total: ReturnType<typeof withRates>; partial: boolean } | undefined;
+  if (prevTo >= r.earliest) {
+    const wanted = addDays(r.from, -days.length);
+    const prevFrom = wanted < r.earliest ? r.earliest : wanted;
+    const prevDays = daysBetween(prevFrom, prevTo);
+    previous = { from: prevFrom, to: prevTo, total: summarise(await readDays(prevDays, r.today), prevDays).total, partial: prevFrom !== wanted };
+  }
+
+  const byId = new Map(videos.map((v) => [v.id.toLowerCase(), v]));
+  const ids = new Set([...videos.filter((v) => v.status === 'active' || v.status === 'archived').map((v) => v.id.toLowerCase()), ...cur.perVideo.keys()]);
+  const rows = [...ids].map((id) => {
+    const v = byId.get(id);
+    const life = r.totals?.videos[id] ?? {};
+    return {
+      id, title: v?.title ?? 'Deleted video', slug: v?.slug, status: v?.status ?? 'deleted', provider: v?.source.provider,
+      products: v?.products ?? [], businessLines: v?.businessLines ?? [], publishedAt: v?.publishedAt, featured: !!v?.featured,
+      ...withRates(cur.perVideo.get(id) ?? {}),
+      lifetimeViews: life.views ?? 0, lifetimePlays: life.plays ?? 0,
+    };
+  });
+  res.set('Cache-Control', 'no-store').json({
+    from: r.from, to: r.to, today: r.today, earliest: r.earliest, since: r.since, retentionDays: ANALYTICS_RETENTION_DAYS,
+    total: cur.total, previous, series: cur.series, rows,
+  });
+}));
+
+api.get('/analytics/videos/:id', approver, wrap(async (req, res) => {
+  const id = String(req.params.id).toLowerCase();
+  if (!/^[0-9a-f-]{36}$/.test(id)) return res.status(400).json({ error: 'Invalid video id' });
+  const r = await analyticsRange(req.query);
+  const days = daysBetween(r.from, r.to);
+  const s = summarise(await readDays(days, r.today), days, id);
+  res.set('Cache-Control', 'no-store').json({ from: r.from, to: r.to, total: s.total, series: s.series });
+}));
+
 // ---------- backup and restore (administrators only) ----------
 const backups = new BackupEngine({
   stores, storage: createBackupStorage(config), config, appVersion: process.env.APP_VERSION,
@@ -756,6 +839,7 @@ const backups = new BackupEngine({
     // Drop caches so restored data shows at once (the public site refreshes on its own within a minute).
     if (parts.includes('approvers')) approverCache = undefined;
     if (parts.includes('branding') || parts.includes('brandFiles')) faviconCache = undefined;
+    if (parts.includes('analytics')) dayCache.clear();
   },
 });
 const componentList = z.array(z.enum(COMPONENT_KEYS as [BackupComponentKey, ...BackupComponentKey[]])).min(1).max(COMPONENT_KEYS.length);

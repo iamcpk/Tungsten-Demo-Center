@@ -10,6 +10,7 @@ import Approvals from './pages/Approvals';
 import Approvers from './pages/Approvers';
 import BrandingPage from './pages/Branding';
 import BackupPage from './pages/Backup';
+import Analytics from './pages/Analytics';
 
 export const MeContext = createContext<Me | undefined>(undefined);
 export const useMe = () => useContext(MeContext)!;
@@ -43,6 +44,7 @@ export default function App() {
             <NavLink to="/" end>Videos</NavLink>
             <NavLink to="/videos/new">Add video</NavLink>
             {me.canApprove && <NavLink to="/approvals">Approvals</NavLink>}
+            {me.canApprove && <NavLink to="/analytics">Analytics</NavLink>}
             <NavLink to="/taxonomy">Lists &amp; tags</NavLink>
             {isAdmin && <NavLink to="/approvers">Approvers</NavLink>}
             {isAdmin && <NavLink to="/subscribers">Subscribers</NavLink>}
@@ -63,6 +65,7 @@ export default function App() {
             <Route path="/videos/:id" element={<VideoEditor />} />
             <Route path="/taxonomy" element={<TaxonomyPage />} />
             {me.canApprove && <Route path="/approvals" element={<Approvals />} />}
+            {me.canApprove && <Route path="/analytics" element={<Analytics />} />}
             {isAdmin && <Route path="/approvers" element={<Approvers />} />}
             {isAdmin && <Route path="/subscribers" element={<Subscribers />} />}
             {isAdmin && <Route path="/submissions" element={<Submissions />} />}

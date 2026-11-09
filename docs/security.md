@@ -6,7 +6,7 @@
 
   | Identity | Cosmos DB | Storage | Email |
   |---|---|---|---|
-  | Public site | Read all; write `subscribers`, `submissions` only | none | send |
+  | Public site | Read all; write `subscribers`, `submissions`, `analytics` only | none | send |
   | Admin portal | Read/write database | Blob Data Contributor, Queue Message Sender | send |
   | Encoder | Read/write `videos` only | Blob Data Contributor, Queue Message Processor + Reader | none |
 
@@ -30,6 +30,14 @@
 - Importing from another storage account accepts only `https://<account>.blob.core.windows.net/<container>` URLs with a SAS that has Read and List. The SAS is used once and is never stored or logged.
 - Uploaded backup files are limited to 200 MB, must be a Demo Center data export, and are validated like any other backup.
 - Subscribers are excluded by default. **Agree how long backups containing personal data may be kept with Legal / Privacy**; nightly retention is configurable.
+
+## Video analytics
+- Approvers and administrators see the Analytics page. Content Creators don't.
+- Collection is anonymous by design. The public site reports only "video X was opened, played, reached 25/50/75%, finished, or played for N seconds". No cookies, local storage, visitor IDs or session IDs are used. The IP address is used in memory by the rate limiter and the user agent to drop bots; neither is stored or logged. Nothing is written to the visitor's device, so no consent banner is needed for it. **Confirm this with Legal / Privacy before go-live.**
+- The database holds only totals per video per day, written about once a minute from memory, plus lifetime totals per video. Updates use ETag checks so several app instances never overwrite each other.
+- Abuse limits: 60 tracking requests per minute per client, at most 40 events per request, each one-off event counted once per video per request, watch time capped at 120 seconds per request, unknown video IDs ignored, and requests from other sites refused (`Sec-Fetch-Site`).
+- Retention: daily totals are kept for 25 months (so any month can be compared with the same month a year earlier) and then deleted automatically by Cosmos DB TTL. Lifetime totals are kept. The page only offers dates inside the stored range and starts at the day tracking began.
+- The YouTube embed now uses `enablejsapi=1` with the site's `origin` so the page can read playback progress through `postMessage`; it still uses the privacy-enhanced youtube-nocookie.com domain.
 
 ## Uploads
 - Browsers upload directly to Blob Storage with a **user-delegation SAS** (signed by Entra ID, never an account key). Each SAS covers one blob, allows create/write only, uses HTTPS only, and expires after 6 hours (videos) or 2 hours (attachments).

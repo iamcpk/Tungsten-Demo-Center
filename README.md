@@ -71,6 +71,16 @@ Administrators back up and restore the site on the admin portal's **Backup & res
 - **Moving to a new Azure instance:** deploy the template to the new subscription or resource group and set up Entra ID sign-in and roles (these are not in a backup). Make an **Everything** backup on the old site, then either import it on the new site with a short-lived container SAS URL (Read + List) for the old `backups` container, copy the folder with AzCopy (`azcopy copy "https://<old>.blob.core.windows.net/backups/<backup>?<sas>" "https://<new>.blob.core.windows.net/backups/" --recursive`), or, for data only, use **Download data** and upload the file. Then **Restore** it. All paths are relative, so content works on the new address.
 - Cosmos DB also keeps Azure's own continuous point-in-time backup (7 days). That restores into the same account and is the better tool after a regional outage; this page covers everything else, including moving the site.
 
+## Video analytics
+
+Approvers and administrators see the **Analytics** page in the admin portal.
+
+- **What is counted:** page views, plays, watch time (only time actually played, not skipped), how many plays reached 25%, 50% and 75%, and how many reached the end (95% or more). It works for Vimeo, YouTube and uploaded videos.
+- **Anonymous:** no cookies, no local storage, no visitor or session IDs, and no IP address, user agent or location is stored. The database only holds totals per video per day. Known bots and automated browsers are ignored, and branding previews are not counted.
+- **The page:** defaults to the last 30 days, sorted by plays (most watched first). Choose last 7, 30 or 90 days, this month, last month, the last 12 months, all available data, or a custom range. Filter by text, status, product, business line and source, sort by any column, see a daily trend for all videos or one video, compare totals with the previous period of the same length, and export the table as CSV.
+- **History:** daily totals are kept for 25 months and then deleted automatically, so every month can be compared with the same month a year earlier. Lifetime totals per video are kept. Data starts on the day tracking was switched on; there is no history from before that (the old iVengi site's statistics are not imported). Days are in UTC, and counts appear within about a minute.
+- Analytics are included in backups ("Video analytics", ticked by default).
+
 ## Architecture
 
 ```
