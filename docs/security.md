@@ -41,7 +41,7 @@
 - Strict Content-Security-Policy (no inline scripts; frames limited to Vimeo / YouTube-nocookie), HSTS, `frame-ancestors 'none'`, nosniff, referrer policy.
 - All input is validated with zod. Rich descriptions are sanitised with an allow-list on write and again on read.
 - Admin API CSRF protection: a custom header is required on state-changing requests, plus an Origin check.
-- Public forms: rate limiting per IP, honeypot field, minimum fill time. Subscriptions use **double opt-in**, and the endpoint responds the same way whether or not an address exists. Unsubscribing takes a POST, so mail scanners can't unsubscribe people by prefetching the link.
+- Public forms: rate limiting per IP, honeypot field, minimum fill time. Subscriptions use **double opt-in**, and the endpoint responds the same way whether or not an address exists. Confirming and unsubscribing both take a POST from a page with a button, so mail scanners (for example Microsoft Defender Safe Links), which open every link in incoming mail, can't confirm or unsubscribe anyone, and can't use up the link before the person clicks it. Confirming is safe to repeat, and an old confirmation link never re-subscribes an address that has unsubscribed. Pages opened from emails are `noindex` and `no-store`.
 - CSV export escapes formula characters (CSV injection).
 - No tracking cookies. Vimeo embeds use `dnt=1` and YouTube uses the privacy-enhanced domain, so no cookie banner is needed for the site itself. **Confirm this with Legal / Privacy before go-live.**
 

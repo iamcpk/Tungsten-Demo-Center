@@ -6,7 +6,7 @@ import Browse from './pages/Browse';
 import VideoPage from './pages/VideoPage';
 import Subscribe from './pages/Subscribe';
 import ContactPage from './pages/Contact';
-import { Subscribed, Unsubscribe } from './pages/SubscriptionStatus';
+import { ConfirmSubscription, Subscribed, Unsubscribe } from './pages/SubscriptionStatus';
 import NotFound from './pages/NotFound';
 import { PreviewBanner } from './branding';
 
@@ -27,6 +27,7 @@ export default function App() {
           <Route path="/subscribe" element={<Subscribe />} />
           <Route path="/contact" element={<ContactPage />} />
           <Route path="/subscribed" element={<Subscribed />} />
+          <Route path="/subscribe/confirm" element={<ConfirmSubscription />} />
           <Route path="/unsubscribe" element={<Unsubscribe />} />
           <Route path="*" element={<NotFound />} />
         </Routes>

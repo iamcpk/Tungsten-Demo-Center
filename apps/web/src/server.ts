@@ -187,19 +187,40 @@ api.post('/subscribe', formLimiter, async (req, res) => {
       to: [email],
       subject: 'Confirm your Tungsten Demo Center subscription',
       text: 'Please confirm that you want to receive emails when new videos are published on the Tungsten Demo Center.\n\nIf you did not request this, ignore this email and nothing will happen.',
-      action: { label: 'Confirm subscription', url: `${config.publicSiteUrl}/api/subscribe/confirm?token=${sub.token}` },
+      action: { label: 'Confirm subscription', url: `${config.publicSiteUrl}/subscribe/confirm?token=${encodeURIComponent(sub.token)}` },
     });
   }
   res.json({ ok: true });
 });
 
-api.get('/subscribe/confirm', async (req, res) => {
+/**
+ * Confirmation links in emails that were already sent point here. Opening a link never changes
+ * anything: mail scanners (for example Microsoft Defender Safe Links) open every link in incoming
+ * mail, which used to confirm the subscription and use up the link before the person clicked it.
+ * The page it leads to asks the person to press Confirm, which POSTs below.
+ */
+api.get('/subscribe/confirm', (req, res) => {
   res.set('Cache-Control', 'no-store');
   const token = str(req.query.token, 100);
+  res.redirect(302, token ? `/subscribe/confirm?token=${encodeURIComponent(token)}` : '/subscribed?status=invalid');
+});
+
+// More generous than the form limit: people behind one company network may confirm at the same time.
+const confirmLimiter = rateLimit({ windowMs: 10 * 60_000, limit: 30, standardHeaders: 'draft-7', legacyHeaders: false, keyGenerator: clientKey });
+
+/**
+ * Confirms a pending subscription. Safe to repeat: the token stays the same (it is also the
+ * unsubscribe token), so pressing Confirm again just reports "already confirmed".
+ * An unsubscribed address is not re-subscribed by an old link; the person subscribes again instead.
+ */
+api.post('/subscribe/confirm', confirmLimiter, async (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  const token = str(req.body?.token, 100);
   const [sub] = token ? await stores.subscribers.findBy('token', token) : [];
-  if (!sub) return res.redirect(302, '/subscribed?status=invalid');
-  if (sub.status !== 'confirmed') await stores.subscribers.upsert({ ...sub, status: 'confirmed', confirmedAt: new Date().toISOString(), token: randomToken() });
-  res.redirect(302, '/subscribed?status=ok');
+  if (!sub || sub.status === 'unsubscribed') return res.json({ status: 'invalid' });
+  if (sub.status === 'confirmed') return res.json({ status: 'already' });
+  await stores.subscribers.upsert({ ...sub, status: 'confirmed', confirmedAt: new Date().toISOString() });
+  res.json({ status: 'confirmed' });
 });
 
 // GET shows a confirmation page (mail scanners prefetch links); POST performs the unsubscribe.
@@ -308,12 +329,17 @@ function metaTags(b: Branding, title: string, description: string, url: string, 
   ].join('\n    ');
 }
 
+const TOKEN_PAGES = new Set(['/subscribe/confirm', '/subscribed', '/unsubscribe']);
+
 app.get('*', async (req: Request, res: Response, next: NextFunction) => {
   try {
     let html = await getShell();
     const { branding: b, preview } = await brandingFor(req.query.brandPreview);
     const siteImage = b.assets.socialImage ? `${config.publicSiteUrl}${brandAssetUrl(b.assets.socialImage)}` : undefined;
     let tags = metaTags(b, b.identity.siteName, b.seo.description, `${config.publicSiteUrl}${req.path}`, siteImage);
+    // Pages opened from emails carry a personal token: keep them out of search engines and caches.
+    const tokenPage = TOKEN_PAGES.has(req.path);
+    if (tokenPage) tags += '\n    <meta name="robots" content="noindex, nofollow">';
     const m = /^\/videos\/([a-z0-9-]+)$/.exec(req.path);
     if (m) {
       const v = (await getCatalog()).find((x) => x.slug === m[1]);
@@ -325,7 +351,7 @@ app.get('*', async (req: Request, res: Response, next: NextFunction) => {
     }
     if (preview) tags += '\n    <meta name="robots" content="noindex, nofollow">';
     html = html.replace(/<title>.*?<\/title>/s, '').replace('<!--app-meta-->', `${tags}\n    ${brandHeadTags(b)}\n    ${brandDataScript(b, preview)}`);
-    res.set('Cache-Control', preview ? 'no-store' : 'no-cache').type('html').send(html);
+    res.set('Cache-Control', preview || tokenPage ? 'no-store' : 'no-cache').type('html').send(html);
   } catch (e) {
     next(e);
   }
