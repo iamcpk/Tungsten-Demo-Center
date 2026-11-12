@@ -7,7 +7,7 @@
     "dev": "concurrently -k -n api,ui \"tsx watch --env-file=../../.env src/server.ts\" \"vite --config client/vite.config.ts\"",
     "build": "tsc -p tsconfig.json && vite build --config client/vite.config.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p client/tsconfig.json --noEmit",
-    "test": "node --test dist/server/auth.test.js dist/server/workflow.test.js",
+    "test": "node --test dist/server/auth.test.js dist/server/workflow.test.js dist/server/frame.test.js",
     "start": "node dist/server/server.js"
   },
   "dependencies": {

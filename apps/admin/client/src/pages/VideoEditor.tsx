@@ -220,6 +220,14 @@ export default function VideoEditor() {
     } catch (err) { setMsg({ kind: 'err', text: (err as Error).message }); return false; }
   };
   const [picking, setPicking] = useState(false);
+  const takeFrame = async (time: number): Promise<boolean> => {
+    if (!video) return false;
+    try {
+      setVideo(await api.send<Video>('POST', `/api/videos/${video.id}/thumbnail/frame`, { time }));
+      setMsg({ kind: 'ok', text: 'Thumbnail set from the chosen frame.' });
+      return true;
+    } catch (err) { setMsg({ kind: 'err', text: (err as Error).message }); return false; }
+  };
 
   const [refreshing, setRefreshing] = useState(false);
   const refreshThumb = async () => {
@@ -473,7 +481,7 @@ export default function VideoEditor() {
               </div>
               {picking && video.source.provider === 'azure' && video.source.encodeState === 'ready' && (
                 <FramePicker videoId={video.id} duration={video.source.durationSec} onClose={() => setPicking(false)}
-                  onUse={(file) => uploadThumb(file, 'Thumbnail set from the chosen frame.')} />
+                  onUse={takeFrame} />
               )}
               <p className="hint">
                 {video.source.provider === 'azure'

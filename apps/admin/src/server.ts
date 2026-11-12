@@ -23,6 +23,7 @@ import {
 } from '@tdc/core';
 import { authenticate, csrfGuard, requireRole, resolveAuthMode, withApprovers, type AdminUser, type ApproverSets, type ApproverSync } from './auth.js';
 import { actorId, canApprove, decisionBlockedReason, editBlockedReason, statusChangeError } from './workflow.js';
+import { SAFE_REL, extractFrame, findSegment, joinRel, pickVariant } from './frame.js';
 
 const config = loadConfig();
 const authMode = resolveAuthMode();
@@ -488,7 +489,7 @@ api.get('/videos/:id/stream/*', creator, wrap(async (req, res) => {
   if (!hls) throw new HttpError(404, 'This video has no encoded stream');
   const rel = String((req.params as Record<string, string>)[0] ?? '');
   const ext = rel.split('.').pop() ?? '';
-  if (!/^[A-Za-z0-9_-]+(\/[A-Za-z0-9_-]+)*\.(m3u8|ts)$/.test(rel) || !STREAM_TYPES[ext]) throw new HttpError(400, 'Invalid stream file');
+  if (!SAFE_REL.test(rel) || !STREAM_TYPES[ext]) throw new HttpError(400, 'Invalid stream file');
   const dir = hls.slice(0, hls.lastIndexOf('/') + 1);
   let buf: Buffer;
   try {
@@ -498,6 +499,42 @@ api.get('/videos/:id/stream/*', creator, wrap(async (req, res) => {
     throw e;
   }
   res.set({ 'Content-Type': STREAM_TYPES[ext], 'Cache-Control': 'private, max-age=300' }).send(buf);
+}));
+
+/**
+ * "Choose a frame" for uploaded videos: the editor sends the time, and the server cuts that frame from
+ * the sharpest HLS rendition with ffmpeg. Done here because browsers often can't copy a frame from
+ * hardware-decoded video (they hand back a black picture).
+ */
+const frameBody = z.object({ time: z.number().finite().min(0).max(24 * 3600) });
+let framesRunning = 0;
+api.post('/videos/:id/thumbnail/frame', creator, wrap(async (req, res) => {
+  const v = await loadVideo(req, res);
+  if (!v) return;
+  assertEditable(req, v);
+  const hls = v.source.provider === 'azure' && v.source.encodeState === 'ready' ? v.source.hlsPath : undefined;
+  if (!hls) throw new HttpError(400, 'Frames can only be taken from uploaded videos that have finished encoding');
+  const { time } = frameBody.parse(req.body);
+  if (framesRunning >= 3) throw new HttpError(429, 'The server is busy taking other frames. Try again in a moment.');
+  framesRunning++;
+  try {
+    const read = (name: string) => media.readBlob(BLOB_CONTAINERS.media, name);
+    const variant = pickVariant((await read(hls)).toString('utf8'));
+    if (!variant || !SAFE_REL.test(variant)) throw new HttpError(500, 'The video stream could not be read');
+    const variantPath = joinRel(hls, variant);
+    const seg = findSegment((await read(variantPath)).toString('utf8'), time);
+    if (!seg || !SAFE_REL.test(seg.uri)) throw new HttpError(500, 'The video stream could not be read');
+    const jpg = await extractFrame(await read(joinRel(variantPath, seg.uri)), seg.offset);
+    if (imageType(jpg)?.type !== 'image/jpeg') throw new HttpError(500, 'The frame could not be captured');
+    await media.deleteMediaPrefix(`thumbs/${v.id}/`);
+    v.thumbnailPath = await media.putMedia(`thumbs/${v.id}/${Date.now()}.jpg`, jpg, 'image/jpeg');
+    v.updatedAt = new Date().toISOString();
+    await stores.videos.upsert(v);
+    audit(req, 'video.thumbnail.frame', v.id);
+    res.json(v);
+  } finally {
+    framesRunning--;
+  }
 }));
 
 /** Image hosts Vimeo and YouTube serve thumbnails from. Nothing else is ever downloaded. */

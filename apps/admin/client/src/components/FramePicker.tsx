@@ -1,73 +1,15 @@
 import { useEffect, useRef, useState } from 'react';
 
-/** True when a canvas is (almost) entirely black, checked on a small copy. */
-function isBlack(src: HTMLCanvasElement): boolean {
-  const c = document.createElement('canvas');
-  c.width = 64; c.height = 36;
-  const x = c.getContext('2d', { willReadFrequently: true })!;
-  x.drawImage(src, 0, 0, 64, 36);
-  const d = x.getImageData(0, 0, 64, 36).data;
-  let max = 0;
-  for (let i = 0; i < d.length; i += 4) max = Math.max(max, d[i], d[i + 1], d[i + 2]);
-  return max < 12;
-}
-
-/** Waits until the paused video has a decoded frame on screen at its current position. */
-async function settle(el: HTMLVideoElement): Promise<void> {
-  el.pause();
-  if (el.seeking) await new Promise((r) => el.addEventListener('seeked', r, { once: true }));
-  const v = el as HTMLVideoElement & { requestVideoFrameCallback?: (cb: () => void) => number };
-  if (v.requestVideoFrameCallback) {
-    // Re-seeking to the same time makes the browser present that frame again, which fires the callback.
-    await Promise.race([
-      new Promise<void>((r) => { v.requestVideoFrameCallback!(() => r()); el.currentTime = el.currentTime; }),
-      new Promise<void>((r) => setTimeout(r, 1000)),
-    ]);
-    if (el.seeking) await new Promise((r) => el.addEventListener('seeked', r, { once: true }));
-  }
-}
-
-/**
- * Copies the current frame at full resolution. Browsers differ in which copy method works with
- * hardware-decoded video, so each is tried in turn and the first non-black picture wins.
- */
-async function captureFrame(el: HTMLVideoElement): Promise<HTMLCanvasElement> {
-  await settle(el);
-  const w = el.videoWidth, h = el.videoHeight;
-  const draw = (source: CanvasImageSource) => {
-    const c = document.createElement('canvas');
-    c.width = w; c.height = h;
-    c.getContext('2d')!.drawImage(source, 0, 0, w, h);
-    return c;
-  };
-  const attempts: (() => Promise<HTMLCanvasElement>)[] = [
-    async () => draw(el),
-    async () => { const b = await createImageBitmap(el); try { return draw(b); } finally { b.close(); } },
-  ];
-  const VF = (window as unknown as { VideoFrame?: new (s: HTMLVideoElement) => CanvasImageSource & { close(): void } }).VideoFrame;
-  if (VF) attempts.push(async () => { const f = new VF(el); try { return draw(f); } finally { f.close(); } });
-  let last: HTMLCanvasElement | undefined;
-  for (let round = 0; round < 2; round++) {
-    for (const a of attempts) {
-      try {
-        last = await a();
-        if (!isBlack(last)) return last;
-      } catch { /* try the next method */ }
-    }
-    await new Promise((r) => setTimeout(r, 300)); // give the decoder a moment, then try once more
-  }
-  if (!last) throw new Error('The frame could not be captured.');
-  return last;
-}
-
 /**
  * Lets the editor pause an uploaded (encoded) video on any frame and use it as the thumbnail.
- * The stream comes from the portal's own /api so the frame can be copied from a canvas.
+ * The server cuts the chosen frame from the sharpest rendition (browsers can't always copy frames
+ * from hardware-decoded video), so the picture doesn't depend on the editor's browser.
  */
 export function FramePicker({ videoId, duration, onUse, onClose }: {
   videoId: string;
   duration?: number;
-  onUse: (file: File) => Promise<boolean>;
+  /** Saves the frame at this time (seconds) as the thumbnail. Resolves true when it worked. */
+  onUse: (time: number) => Promise<boolean>;
   onClose: () => void;
 }) {
   const ref = useRef<HTMLVideoElement>(null);
@@ -117,34 +59,19 @@ export function FramePicker({ videoId, duration, onUse, onClose }: {
   };
   const step = (sec: number) => seek((ref.current?.currentTime ?? 0) + sec);
 
-  const [blackFrame, setBlackFrame] = useState<Blob>();
-
   const use = async () => {
     const el = ref.current;
-    if (!el || !el.videoWidth) return;
+    if (!el) return;
+    el.pause();
     setSaving(true);
     setError('');
-    setBlackFrame(undefined);
     try {
-      const canvas = await captureFrame(el);
-      const blob = await new Promise<Blob | null>((r) => canvas.toBlob(r, 'image/jpeg', 0.9));
-      if (!blob) throw new Error('The frame could not be captured.');
-      if (isBlack(canvas)) {
-        // Some browsers hand back an empty picture for hardware-decoded video. Don't save it silently.
-        setBlackFrame(blob);
-        return;
-      }
-      await save(blob);
+      if (await onUse(el.currentTime)) onClose();
     } catch (e) {
       setError((e as Error).message);
     } finally {
       setSaving(false);
     }
-  };
-
-  const save = async (blob: Blob) => {
-    const t = Math.round((ref.current?.currentTime ?? 0) * 1000);
-    if (await onUse(new File([blob], `frame-${t}.jpg`, { type: 'image/jpeg' }))) onClose();
   };
 
   const fmt = (s: number) => {
@@ -169,19 +96,10 @@ export function FramePicker({ videoId, duration, onUse, onClose }: {
         <button type="button" className="btn btn-sm" onClick={() => step(1)} disabled={!ready} aria-label="Forward 1 second">+1s</button>
         <span className="frame-spacer" />
         <button type="button" className="btn" onClick={onClose} disabled={saving}>Cancel</button>
-        <button type="button" className="btn btn-primary" onClick={use} disabled={!ready || saving}>{saving ? 'Saving...' : 'Use this frame'}</button>
+        <button type="button" className="btn btn-primary" onClick={use} disabled={!ready || saving}>{saving ? 'Taking frame...' : 'Use this frame'}</button>
       </div>
       {error && <p className="alert">{error}</p>}
-      {blackFrame && (
-        <div className="alert">
-          <p><strong>The captured frame is completely black.</strong> If the player shows a picture at this point, your browser could not copy it. This can happen with hardware video acceleration or Microsoft Edge's video enhancement. Try another moment, another browser, or upload an image instead.</p>
-          <p>
-            <button type="button" className="btn btn-sm" onClick={() => setBlackFrame(undefined)}>Pick another frame</button>{' '}
-            <button type="button" className="btn btn-sm" onClick={() => { const b = blackFrame; setBlackFrame(undefined); setSaving(true); void save(b).finally(() => setSaving(false)); }}>The frame really is black: use it</button>
-          </p>
-        </div>
-      )}
-      <p className="hint">Play or drag the slider to the moment you want, fine-tune with the frame buttons, then press Use this frame. The picture is saved at the video's full resolution.</p>
+      <p className="hint">Play or drag the slider to the moment you want, fine-tune with the frame buttons, then press Use this frame. The frame is taken on the server from the full-resolution video, so it can take a few seconds.</p>
     </div>
   );
 }

@@ -13,6 +13,8 @@ COPY apps/admin apps/admin
 RUN npm run build -w @tdc/core && npm run build -w @tdc/admin
 
 FROM node:24-alpine
+# ffmpeg cuts frames from uploaded videos for "Choose a frame".
+RUN apk add --no-cache ffmpeg
 # Recorded in backups so it's clear which build made them.
 ARG APP_VERSION=dev
 ENV NODE_ENV=production PORT=8080 APP_VERSION=$APP_VERSION
