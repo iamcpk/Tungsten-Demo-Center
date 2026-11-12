@@ -20,6 +20,7 @@ import {
   type BackupComponentKey,
   ANALYTICS_RETENTION_DAYS, addDays, dayDocId, dayKey, daysBetween, earliestDay, isDay, summarise, withRates,
   type AnalyticsDayDoc, type AnalyticsTotalsDoc,
+  CAPTION_LANGUAGES, CaptionError, MAX_CAPTION_BYTES, MAX_CAPTION_TRACKS, captionLanguage, isCaptionLang, parseCaptions, type CaptionTrack,
 } from '@tdc/core';
 import { authenticate, csrfGuard, requireRole, resolveAuthMode, withApprovers, type AdminUser, type ApproverSets, type ApproverSync } from './auth.js';
 import { actorId, canApprove, decisionBlockedReason, editBlockedReason, statusChangeError } from './workflow.js';
@@ -393,6 +394,7 @@ api.delete('/videos/:id', admin, wrap(async (req, res) => {
   await media.deleteMediaPrefix(`hls/${v.id}/`);
   await media.deleteMediaPrefix(`thumbs/${v.id}/`);
   await media.deleteMediaPrefix(`attachments/${v.id}/`);
+  await media.deleteMediaPrefix(`captions/${v.id}/`);
   if (v.source.uploadBlob) await media.deleteBlob(BLOB_CONTAINERS.uploads, v.source.uploadBlob);
   await stores.videos.delete(v.id);
   audit(req, 'video.delete', v.id);
@@ -630,6 +632,53 @@ api.delete('/videos/:id/attachments/:attId', creator, wrap(async (req, res) => {
   v.updatedAt = new Date().toISOString();
   await stores.videos.upsert(v);
   audit(req, 'video.attachment-delete', v.id);
+  res.json(v);
+}));
+
+// ---------- closed captions (uploaded videos; WebVTT or SRT, rewritten as clean WebVTT) ----------
+const captionUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: MAX_CAPTION_BYTES, files: 1, fields: 4 } });
+const captionBody = z.object({ lang: z.string().refine(isCaptionLang, 'Choose a language'), label: z.string().trim().max(40).optional() });
+
+api.get('/captions/languages', creator, (_req, res) => res.json(CAPTION_LANGUAGES));
+
+api.post('/videos/:id/captions', creator, captionUpload.single('file'), wrap(async (req, res) => {
+  const v = await loadVideo(req, res);
+  if (!v) return;
+  assertEditable(req, v);
+  if (v.source.provider !== 'azure') throw new HttpError(400, 'Captions for Vimeo and YouTube videos are managed on Vimeo or YouTube');
+  if (!req.file) throw new HttpError(400, 'Choose a caption file (.vtt or .srt)');
+  const body = captionBody.parse(req.body);
+  let parsed: ReturnType<typeof parseCaptions>;
+  try { parsed = parseCaptions(req.file.buffer); } catch (e) {
+    if (e instanceof CaptionError) throw new HttpError(400, e.message);
+    throw e;
+  }
+  const tracks = v.captions ?? [];
+  const existing = tracks.find((t) => t.lang === body.lang);
+  if (!existing && tracks.length >= MAX_CAPTION_TRACKS) throw new HttpError(400, `A video can have up to ${MAX_CAPTION_TRACKS} caption languages`);
+  const label = cleanText(body.label || captionLanguage(body.lang)?.label || body.lang, 40);
+  const id = existing?.id ?? randomUUID();
+  const vttPath = await media.putMedia(`captions/${v.id}/${safeBlobName(body.lang)}-${Date.now()}.vtt`, Buffer.from(parsed.vtt, 'utf8'), 'text/vtt; charset=utf-8');
+  if (existing?.path && existing.path !== vttPath) await media.deleteBlob(BLOB_CONTAINERS.media, existing.path).catch(() => undefined);
+  const track: CaptionTrack = { id, lang: body.lang, label, path: vttPath, cues: parsed.cues, lastCueSec: parsed.lastCueSec, uploadedAt: new Date().toISOString() };
+  v.captions = existing ? tracks.map((t) => (t.id === id ? track : t)) : [...tracks, track];
+  v.updatedAt = track.uploadedAt;
+  await stores.videos.upsert(v);
+  audit(req, existing ? 'video.captions-replace' : 'video.captions-add', v.id);
+  res.json(v);
+}));
+
+api.delete('/videos/:id/captions/:trackId', creator, wrap(async (req, res) => {
+  const v = await loadVideo(req, res);
+  if (!v) return;
+  assertEditable(req, v);
+  const track = v.captions?.find((t) => t.id === req.params.trackId);
+  if (!track) return res.status(404).json({ error: 'Caption track not found' });
+  await media.deleteBlob(BLOB_CONTAINERS.media, track.path);
+  v.captions = v.captions!.filter((t) => t.id !== track.id);
+  v.updatedAt = new Date().toISOString();
+  await stores.videos.upsert(v);
+  audit(req, 'video.captions-delete', v.id);
   res.json(v);
 }));
 

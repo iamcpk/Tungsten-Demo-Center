@@ -1,3 +1,4 @@
+import type { CaptionTrack } from './captions.js';
 /** Business lines from the iVengi "Select the type of video" field. */
 export const BUSINESS_LINES = {
   IA: 'Intelligent Automation',
@@ -68,6 +69,8 @@ export interface Video {
   /** External thumbnail URL fallback. */
   thumbnailUrl?: string;
   attachments: Attachment[];
+  /** Closed captions (uploaded videos only), one track per language. */
+  captions?: CaptionTrack[];
   publishedAt: string;
   createdAt: string;
   updatedAt: string;

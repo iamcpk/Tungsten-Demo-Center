@@ -9,6 +9,7 @@ export interface Me {
 }
 
 export type Provider = 'vimeo' | 'youtube' | 'azure';
+export interface CaptionTrack { id: string; lang: string; label: string; path: string; cues: number; lastCueSec: number; uploadedAt: string }
 export interface Attachment { id: string; name: string; description?: string; path?: string; url?: string; sizeBytes?: number }
 export interface Video {
   id: string;
@@ -40,6 +41,7 @@ export interface Video {
   thumbnailPath?: string;
   thumbnailUrl?: string;
   attachments: Attachment[];
+  captions?: CaptionTrack[];
   publishedAt: string;
   createdAt: string;
   updatedAt: string;

@@ -15,7 +15,9 @@ function youTubeEmbed(id: string) {
   return `https://www.youtube-nocookie.com/embed/${encodeURIComponent(id)}?${p}`;
 }
 
-function HlsPlayer({ src, poster, tracker }: { src: string; poster?: string; tracker: WatchTracker }) {
+interface Track { id: string; lang: string; label: string; src: string }
+
+function HlsPlayer({ src, poster, tracker, tracks = [] }: { src: string; poster?: string; tracker: WatchTracker; tracks?: Track[] }) {
   const ref = useRef<HTMLVideoElement>(null);
   const [error, setError] = useState(false);
   useEffect(() => {
@@ -38,7 +40,12 @@ function HlsPlayer({ src, poster, tracker }: { src: string; poster?: string; tra
     return () => { unwatch(); destroy?.(); };
   }, [src, tracker]);
   if (error) return <div className="player-msg">This video could not be played in your browser.</div>;
-  return <video ref={ref} controls playsInline preload="metadata" poster={poster} />;
+  // Captions are off until the viewer picks them from the player's CC menu.
+  return (
+    <video ref={ref} controls playsInline preload="metadata" poster={poster}>
+      {tracks.map((t) => <track key={t.id} kind="subtitles" srcLang={t.lang} label={t.label} src={t.src} />)}
+    </video>
+  );
 }
 
 export function Player({ v }: { v: Video }) {
@@ -60,7 +67,8 @@ export function Player({ v }: { v: Video }) {
     inner = <iframe ref={frame} src={youTubeEmbed(s.externalId)} title={v.title} allow="autoplay; encrypted-media; fullscreen; picture-in-picture" allowFullScreen />;
   } else if (s.provider === 'azure' && cfg) {
     inner = s.hlsPath && s.encodeState === 'ready'
-      ? <HlsPlayer src={mediaUrl(cfg.mediaBaseUrl, s.hlsPath)} poster={thumbOf(v, cfg.mediaBaseUrl)} tracker={tracker} />
+      ? <HlsPlayer src={mediaUrl(cfg.mediaBaseUrl, s.hlsPath)} poster={thumbOf(v, cfg.mediaBaseUrl)} tracker={tracker}
+          tracks={(v.captions ?? []).map((c) => ({ ...c, src: `/api/videos/${encodeURIComponent(v.slug)}/captions/${encodeURIComponent(c.id)}` }))} />
       : <div className="player-msg">This video is being processed. Please check back shortly.</div>;
   }
   return <div className="player">{inner}</div>;

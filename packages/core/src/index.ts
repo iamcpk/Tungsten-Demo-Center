@@ -13,3 +13,4 @@ export * from './backup.js';
 export * from './backup-storage.js';
 export * from './branding.js';
 export * from './analytics.js';
+export * from './captions.js';

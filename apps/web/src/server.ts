@@ -186,6 +186,25 @@ api.get('/videos/:slug', async (req, res) => {
   res.json({ video: toPublicVideo(v), related: relatedVideos(all, v).map(toPublicVideo) });
 });
 
+// Caption files live in the public media container on another origin. The player's <track> needs them
+// from the site's own origin (browsers don't load cross-origin captions without CORS), so they are relayed here.
+const captionCache = new Map<string, string>();
+api.get('/videos/:slug/captions/:trackId', async (req, res) => {
+  const v = (await getCatalog()).find((x) => x.slug === req.params.slug);
+  const t = v?.captions?.find((c) => c.id === req.params.trackId);
+  if (!v || !t || !(t.path.startsWith(`captions/${v.id}/`) && /^captions\/[0-9a-f-]{36}\/[A-Za-z0-9._-]+\.vtt$/.test(t.path))) return res.status(404).json({ error: 'Not found' });
+  let vtt = captionCache.get(t.path);
+  if (vtt === undefined) {
+    const r = await fetch(`${config.mediaBaseUrl}/${t.path}`, { redirect: 'error', signal: AbortSignal.timeout(10_000) }).catch(() => undefined);
+    if (!r?.ok) return res.status(502).json({ error: 'Captions are not available right now' });
+    vtt = await r.text();
+    if (!vtt.startsWith('WEBVTT')) return res.status(502).json({ error: 'Captions are not available right now' });
+    if (captionCache.size >= 200) captionCache.delete(captionCache.keys().next().value!);
+    captionCache.set(t.path, vtt); // file names are unique per upload, so a cached copy never goes stale
+  }
+  res.set({ 'Content-Type': 'text/vtt; charset=utf-8', 'Cache-Control': 'public, max-age=300' }).send(vtt);
+});
+
 api.get('/taxonomy', async (_req, res) => {
   const t = (await stores.meta.get('taxonomy')) ?? EMPTY_TAXONOMY;
   res.json({ products: t.products });

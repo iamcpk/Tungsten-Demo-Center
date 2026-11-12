@@ -4,6 +4,7 @@ import { api, BL, fmtBytes, fmtDate, isPublished, mediaUrl, STATUS_LABEL, upload
 import { TagInput } from '../components/TagInput';
 import { MultiSelect } from '../components/MultiSelect';
 import { FramePicker } from '../components/FramePicker';
+import { CaptionsPanel } from '../components/CaptionsPanel';
 import { useMe } from '../App';
 
 interface FormState {
@@ -505,6 +506,10 @@ export default function VideoEditor() {
               </ul>
               <label className="btn file-btn">Add file<input type="file" accept=".pdf,.ppt,.pptx,.doc,.docx,.xls,.xlsx,.zip,.txt,.png,.jpg,.jpeg" onChange={(e) => e.target.files?.[0] && addAttachment(e.target.files[0])} /></label>
             </section>
+          )}
+
+          {video && video.source.provider === 'azure' && (
+            <CaptionsPanel video={video} mediaBaseUrl={me.mediaBaseUrl} readOnly={readOnly} onChange={setVideo} onMessage={setMsg} />
           )}
 
           <section className="panel">

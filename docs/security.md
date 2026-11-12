@@ -42,6 +42,7 @@
 ## Uploads
 - Browsers upload directly to Blob Storage with a **user-delegation SAS** (signed by Entra ID, never an account key). Each SAS covers one blob, allows create/write only, uses HTTPS only, and expires after 6 hours (videos) or 2 hours (attachments).
 - Allowed file extensions and maximum sizes are enforced server-side. Thumbnails go through the server, which checks their magic bytes.
+- Caption files (.vtt or .srt, up to 2 MB) go through the server, which parses them and stores a rewritten WebVTT file: only cue timings, simple positioning settings and text with `<b>`, `<i>` and `<u>` are kept, and everything else (styles, regions, other markup, control characters) is removed. The public site relays caption files from its own origin so the player can load them without opening up storage CORS.
 - Raw uploads stay in the private `uploads` container. Only encoder output, thumbnails and attachments live in the public `media` container. Blob listing is disabled there.
 - Storage CORS allows only the admin portal origin.
 

@@ -71,6 +71,18 @@ Administrators back up and restore the site on the admin portal's **Backup & res
 - **Moving to a new Azure instance:** deploy the template to the new subscription or resource group and set up Entra ID sign-in and roles (these are not in a backup). Make an **Everything** backup on the old site, then either import it on the new site with a short-lived container SAS URL (Read + List) for the old `backups` container, copy the folder with AzCopy (`azcopy copy "https://<old>.blob.core.windows.net/backups/<backup>?<sas>" "https://<new>.blob.core.windows.net/backups/" --recursive`), or, for data only, use **Download data** and upload the file. Then **Restore** it. All paths are relative, so content works on the new address.
 - Cosmos DB also keeps Azure's own continuous point-in-time backup (7 days). That restores into the same account and is the better tool after a regional outage; this page covers everything else, including moving the site.
 
+## Closed captions
+
+Uploaded videos can have closed captions in one or more languages.
+
+- On the video's admin page, the **Captions** section takes one WebVTT (.vtt) or SubRip (.srt) file per language, up to 2 MB. Uploading a file for a language that already has captions replaces it.
+- Every file is checked and rewritten as clean WebVTT. Only cue timings, simple positioning settings and text with bold, italic and underline are kept. A file with no readable captions is refused with a message saying why.
+- The page warns when the captions end long before or after the video, which usually means the wrong file.
+- On the public site the player shows a CC button with a menu of languages. Captions are off until the viewer turns them on.
+- Captions can be added, replaced or removed at any time without re-encoding. Content Creators can't change them on a published video, like other edits.
+- Vimeo and YouTube videos keep the captions set on those platforms.
+- Caption files are included in backups ("Caption files", ticked by default).
+
 ## Video analytics
 
 Approvers and administrators see the **Analytics** page in the admin portal.

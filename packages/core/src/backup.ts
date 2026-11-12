@@ -37,7 +37,7 @@ export const BACKUP_ID = /^\d{8}T\d{9}Z-(manual|nightly|pre-restore|uploaded|imp
 
 // ---------- components ----------
 export type DataComponent = 'videos' | 'taxonomy' | 'approvers' | 'branding' | 'subscribers' | 'submissions' | 'analytics';
-export type FileComponent = 'thumbnails' | 'attachments' | 'brandFiles' | 'videoStreams' | 'videoOriginals' | 'importFiles';
+export type FileComponent = 'thumbnails' | 'attachments' | 'captions' | 'brandFiles' | 'videoStreams' | 'videoOriginals' | 'importFiles';
 export type BackupComponentKey = DataComponent | FileComponent;
 
 export interface BackupComponent {
@@ -54,10 +54,11 @@ export interface BackupComponent {
 }
 
 export const BACKUP_COMPONENTS: BackupComponent[] = [
-  { key: 'videos', label: 'Videos and their details', description: 'Every video and document: titles, descriptions, tags, status, approval history, links to Vimeo/YouTube and internal notes.', group: 'Content', kind: 'data', defaultOn: true, pairsWith: ['thumbnails', 'attachments', 'videoStreams'] },
+  { key: 'videos', label: 'Videos and their details', description: 'Every video and document: titles, descriptions, tags, status, approval history, links to Vimeo/YouTube and internal notes.', group: 'Content', kind: 'data', defaultOn: true, pairsWith: ['thumbnails', 'attachments', 'captions', 'videoStreams'] },
   { key: 'taxonomy', label: 'Lists & tags', description: 'Products, industries, presenters, languages and categories.', group: 'Content', kind: 'data', defaultOn: true },
   { key: 'thumbnails', label: 'Thumbnails', description: 'Thumbnail images stored on the site (uploaded, imported or refreshed from Vimeo/YouTube).', group: 'Content', kind: 'files', defaultOn: true, pairsWith: ['videos'] },
   { key: 'attachments', label: 'Attachments', description: 'Files attached to videos (PDFs, slides, documents).', group: 'Content', kind: 'files', defaultOn: true, pairsWith: ['videos'] },
+  { key: 'captions', label: 'Caption files', description: 'Closed caption files (WebVTT) for uploaded videos.', group: 'Content', kind: 'files', defaultOn: true, pairsWith: ['videos'] },
   { key: 'videoStreams', label: 'Uploaded videos (playable)', description: 'Encoded streams of videos uploaded directly to the site. Can be large.', group: 'Content', kind: 'files', defaultOn: true, pairsWith: ['videos'] },
   { key: 'videoOriginals', label: 'Uploaded videos (original files)', description: 'The original files uploaded for encoding. Only needed to re-encode. Can be very large.', group: 'Content', kind: 'files', defaultOn: false, pairsWith: ['videos'] },
   { key: 'branding', label: 'Branding settings', description: 'Published branding, the current draft and version history.', group: 'Site settings', kind: 'data', defaultOn: true, pairsWith: ['brandFiles'] },
@@ -88,6 +89,7 @@ const UUID_FOLDER = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{1
 const FILE_SOURCES: Record<FileComponent, { container: string; prefix: string; match?: RegExp }> = {
   thumbnails: { container: BLOB_CONTAINERS.media, prefix: 'thumbs/' },
   attachments: { container: BLOB_CONTAINERS.media, prefix: 'attachments/' },
+  captions: { container: BLOB_CONTAINERS.media, prefix: 'captions/' },
   brandFiles: { container: BLOB_CONTAINERS.media, prefix: 'branding/' },
   videoStreams: { container: BLOB_CONTAINERS.media, prefix: 'hls/' },
   // Original uploads sit in uploads/<video id>/...; the rest of that container is import material.

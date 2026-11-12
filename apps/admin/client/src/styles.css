@@ -290,3 +290,8 @@ h1 .tag { vertical-align: middle; font-size: 0.75rem; margin-left: 6px; }
 .frame-time { font-variant-numeric: tabular-nums; color: var(--gray); font-size: 0.85rem; white-space: nowrap; }
 .frame-buttons { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .frame-spacer { flex: 1; }
+
+/* ---------- captions ---------- */
+.cap-add { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 10px; }
+.cap-add select { width: auto; }
+.cap-add .file-btn { max-width: 260px; overflow: hidden; text-overflow: ellipsis; }

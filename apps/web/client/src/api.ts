@@ -37,6 +37,8 @@ export interface Video {
   thumbnailPath?: string;
   thumbnailUrl?: string;
   attachments: Attachment[];
+  /** Closed captions for uploaded videos. */
+  captions?: { id: string; lang: string; label: string }[];
   publishedAt: string;
 }
 
