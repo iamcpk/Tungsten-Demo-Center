@@ -281,3 +281,12 @@ h1 .tag { vertical-align: middle; font-size: 0.75rem; margin-left: 6px; }
 .ms-empty { padding: 8px; }
 .ms-foot { display: flex; align-items: center; gap: 8px; justify-content: flex-end; border-top: 1px solid var(--line); margin-top: 6px; padding-top: 8px; }
 .ms-foot .small { margin-right: auto; }
+
+/* ---------- frame picker (uploaded videos) ---------- */
+.frame-picker { margin-top: 14px; display: grid; gap: 10px; }
+.frame-picker video { width: 100%; aspect-ratio: 16 / 9; background: #000; border-radius: 8px; }
+.frame-controls { display: flex; align-items: center; gap: 10px; }
+.frame-controls input[type='range'] { flex: 1; padding: 0; }
+.frame-time { font-variant-numeric: tabular-nums; color: var(--gray); font-size: 0.85rem; white-space: nowrap; }
+.frame-buttons { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.frame-spacer { flex: 1; }

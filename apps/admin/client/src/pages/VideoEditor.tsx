@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { api, BL, fmtBytes, fmtDate, isPublished, mediaUrl, STATUS_LABEL, uploadToBlob, type Provider, type Taxonomy, type Video, type VideoStatus } from '../api';
 import { TagInput } from '../components/TagInput';
 import { MultiSelect } from '../components/MultiSelect';
+import { FramePicker } from '../components/FramePicker';
 import { useMe } from '../App';
 
 interface FormState {
@@ -208,13 +209,17 @@ export default function VideoEditor() {
     }
   };
 
-  const uploadThumb = async (file: File) => {
-    if (!video) return;
+  const uploadThumb = async (file: File, okText?: string): Promise<boolean> => {
+    if (!video) return false;
     const fd = new FormData();
     fd.append('file', file);
-    try { setVideo(await api.upload<Video>(`/api/videos/${video.id}/thumbnail`, fd)); }
-    catch (err) { setMsg({ kind: 'err', text: (err as Error).message }); }
+    try {
+      setVideo(await api.upload<Video>(`/api/videos/${video.id}/thumbnail`, fd));
+      if (okText) setMsg({ kind: 'ok', text: okText });
+      return true;
+    } catch (err) { setMsg({ kind: 'err', text: (err as Error).message }); return false; }
   };
+  const [picking, setPicking] = useState(false);
 
   const [refreshing, setRefreshing] = useState(false);
   const refreshThumb = async () => {
@@ -459,8 +464,22 @@ export default function VideoEditor() {
                     {refreshing ? 'Refreshing...' : `Refresh from ${video.source.provider === 'vimeo' ? 'Vimeo' : 'YouTube'}`}
                   </button>
                 )}
+                {video.source.provider === 'azure' && (
+                  <button type="button" className="btn" onClick={() => setPicking(true)} disabled={picking || readOnly || video.source.encodeState !== 'ready' || !video.source.hlsPath}
+                    title={video.source.encodeState === 'ready' ? 'Pick a frame from the video' : 'Available when encoding has finished'}>
+                    Choose a frame
+                  </button>
+                )}
               </div>
-              <p className="hint">16:9, at least 1280×720. JPG, PNG or WebP up to 8 MB. Uploaded videos get one automatically. Changed the thumbnail on Vimeo or YouTube? Use Refresh to copy the new one here.</p>
+              {picking && video.source.provider === 'azure' && video.source.encodeState === 'ready' && (
+                <FramePicker videoId={video.id} duration={video.source.durationSec} onClose={() => setPicking(false)}
+                  onUse={(file) => uploadThumb(file, 'Thumbnail set from the chosen frame.')} />
+              )}
+              <p className="hint">
+                {video.source.provider === 'azure'
+                  ? <>Uploaded videos get a thumbnail automatically. When encoding has finished, use Choose a frame to pick a moment from the video instead, or upload an image (16:9, at least 1280×720; JPG, PNG or WebP up to 8 MB).</>
+                  : <>Vimeo and YouTube videos use the thumbnail set on {video.source.provider === 'vimeo' ? 'Vimeo' : 'YouTube'}. Changed it there? Use Refresh to copy the new one here. You can also upload an image (16:9, at least 1280×720; JPG, PNG or WebP up to 8 MB).</>}
+              </p>
             </section>
           )}
 

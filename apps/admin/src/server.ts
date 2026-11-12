@@ -49,6 +49,9 @@ app.use(
         'font-src': ["'self'", 'https://fonts.gstatic.com'],
         'img-src': ["'self'", 'data:', 'blob:', mediaOrigin, 'https://i.vimeocdn.com', 'https://i.ytimg.com'],
         'connect-src': ["'self'", ...(blobOrigin ? [blobOrigin] : [])],
+        // The frame picker plays uploaded videos from our own /api (hls.js uses blob: media and workers).
+        'media-src': ["'self'", 'blob:'],
+        'worker-src': ["'self'", 'blob:'],
         'frame-src': ["'none'"],
         'frame-ancestors': ["'none'"],
         'form-action': ["'self'"],
@@ -470,6 +473,31 @@ api.post('/videos/:id/thumbnail', creator, thumbUpload.single('file'), wrap(asyn
   await stores.videos.upsert(v);
   audit(req, 'video.thumbnail', v.id);
   res.json(v);
+}));
+
+/**
+ * The encoded stream of an uploaded video, served from the portal's own origin so the editor can
+ * draw a frame onto a canvas for "Choose a frame" (a cross-origin video would make the canvas unreadable).
+ * Only files inside that video's current HLS folder can be read.
+ */
+const STREAM_TYPES: Record<string, string> = { m3u8: 'application/vnd.apple.mpegurl', ts: 'video/mp2t' };
+api.get('/videos/:id/stream/*', creator, wrap(async (req, res) => {
+  const v = await loadVideo(req, res);
+  if (!v) return;
+  const hls = v.source.provider === 'azure' && v.source.encodeState === 'ready' ? v.source.hlsPath : undefined;
+  if (!hls) throw new HttpError(404, 'This video has no encoded stream');
+  const rel = String((req.params as Record<string, string>)[0] ?? '');
+  const ext = rel.split('.').pop() ?? '';
+  if (!/^[A-Za-z0-9_-]+(\/[A-Za-z0-9_-]+)*\.(m3u8|ts)$/.test(rel) || !STREAM_TYPES[ext]) throw new HttpError(400, 'Invalid stream file');
+  const dir = hls.slice(0, hls.lastIndexOf('/') + 1);
+  let buf: Buffer;
+  try {
+    buf = await media.readBlob(BLOB_CONTAINERS.media, `${dir}${rel}`);
+  } catch (e) {
+    if ((e as { statusCode?: number; code?: string }).statusCode === 404 || (e as { code?: string }).code === 'ENOENT') throw new HttpError(404, 'Not found');
+    throw e;
+  }
+  res.set({ 'Content-Type': STREAM_TYPES[ext], 'Cache-Control': 'private, max-age=300' }).send(buf);
 }));
 
 /** Image hosts Vimeo and YouTube serve thumbnails from. Nothing else is ever downloaded. */
