@@ -657,11 +657,12 @@ api.post('/videos/:id/captions', creator, captionUpload.single('file'), wrap(asy
   const existing = tracks.find((t) => t.lang === body.lang);
   if (!existing && tracks.length >= MAX_CAPTION_TRACKS) throw new HttpError(400, `A video can have up to ${MAX_CAPTION_TRACKS} caption languages`);
   const label = cleanText(body.label || captionLanguage(body.lang)?.label || body.lang, 40);
-  const id = existing?.id ?? randomUUID();
+  // A new id on every upload, so a Remove sent from an out-of-date page can't delete a newer file.
+  const id = randomUUID();
   const vttPath = await media.putMedia(`captions/${v.id}/${safeBlobName(body.lang)}-${Date.now()}.vtt`, Buffer.from(parsed.vtt, 'utf8'), 'text/vtt; charset=utf-8');
   if (existing?.path && existing.path !== vttPath) await media.deleteBlob(BLOB_CONTAINERS.media, existing.path).catch(() => undefined);
   const track: CaptionTrack = { id, lang: body.lang, label, path: vttPath, cues: parsed.cues, lastCueSec: parsed.lastCueSec, uploadedAt: new Date().toISOString() };
-  v.captions = existing ? tracks.map((t) => (t.id === id ? track : t)) : [...tracks, track];
+  v.captions = existing ? tracks.map((t) => (t.id === existing.id ? track : t)) : [...tracks, track];
   v.updatedAt = track.uploadedAt;
   await stores.videos.upsert(v);
   audit(req, existing ? 'video.captions-replace' : 'video.captions-add', v.id);
