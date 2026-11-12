@@ -401,11 +401,11 @@ export default function VideoEditor() {
               </div>
             </div>
             <div className="field"><span>Products</span><MultiSelect label="Products" value={f.products} onChange={(v) => set('products', v)} options={tax?.products} placeholder="Select one or more products" disabled={readOnly} /></div>
-            <div className="field"><span>Categories</span><TagInput value={f.categories} onChange={(v) => set('categories', v)} options={tax?.categories} placeholder="Add category" allowNew={false} /></div>
-            <div className="field"><span>Industries</span><TagInput value={f.verticals} onChange={(v) => set('verticals', v)} options={tax?.verticals} placeholder="Add industry" allowNew={false} /></div>
+            <div className="field"><span>Categories</span><MultiSelect label="Categories" value={f.categories} onChange={(v) => set('categories', v)} options={tax?.categories} placeholder="Select categories" disabled={readOnly} /></div>
+            <div className="field"><span>Industries</span><MultiSelect label="Industries" value={f.verticals} onChange={(v) => set('verticals', v)} options={tax?.verticals} placeholder="Select industries" disabled={readOnly} /></div>
             <div className="row2">
               <div className="field"><span>Presenters</span><TagInput value={f.authors} onChange={(v) => set('authors', v)} options={tax?.authors} placeholder="Add presenter" /></div>
-              <div className="field"><span>Languages</span><TagInput value={f.languages} onChange={(v) => set('languages', v)} options={tax?.languages} placeholder="Add language" allowNew={false} /></div>
+              <div className="field"><span>Languages</span><MultiSelect label="Languages" value={f.languages} onChange={(v) => set('languages', v)} options={tax?.languages} placeholder="Select languages" disabled={readOnly} /></div>
             </div>
             <div className="field"><span>Keywords</span><TagInput value={f.keywords} onChange={(v) => set('keywords', v)} placeholder="Type and press Enter" /></div>
             <p className="hint">Products, categories, industries and languages come from <a href="/taxonomy" target="_blank" rel="noopener">Lists &amp; tags</a> (opens in a new tab).</p>
