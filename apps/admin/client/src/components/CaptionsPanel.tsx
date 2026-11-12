@@ -15,7 +15,6 @@ export function CaptionsPanel({ video, mediaBaseUrl, readOnly, onChange, onMessa
 }) {
   const [langs, setLangs] = useState<Lang[]>([]);
   const [lang, setLang] = useState('en');
-  const [file, setFile] = useState<File>();
   const [busy, setBusy] = useState(false);
   const [inputKey, setInputKey] = useState(0);
   useEffect(() => { api.get<Lang[]>('/api/captions/languages').then(setLangs).catch(() => undefined); }, []);
@@ -24,8 +23,8 @@ export function CaptionsPanel({ video, mediaBaseUrl, readOnly, onChange, onMessa
   const replacing = tracks.find((t) => t.lang === lang);
   const duration = video.source.durationSec;
 
-  const upload = async () => {
-    if (!file) return;
+  // Uploads as soon as a file is chosen, like Attachments: there is no separate button to forget.
+  const upload = async (file: File) => {
     setBusy(true);
     const fd = new FormData();
     fd.append('lang', lang);
@@ -35,12 +34,11 @@ export function CaptionsPanel({ video, mediaBaseUrl, readOnly, onChange, onMessa
       onChange(v);
       const t = v.captions?.find((c) => c.lang === lang);
       onMessage({ kind: 'ok', text: `${replacing ? 'Replaced' : 'Added'} ${t?.label ?? lang} captions (${t?.cues ?? 0} captions).` });
-      setFile(undefined);
-      setInputKey((k) => k + 1);
     } catch (e) {
       onMessage({ kind: 'err', text: (e as Error).message });
     } finally {
       setBusy(false);
+      setInputKey((k) => k + 1);
     }
   };
 
@@ -83,16 +81,13 @@ export function CaptionsPanel({ video, mediaBaseUrl, readOnly, onChange, onMessa
               <option key={l.code} value={l.code}>{l.label}{tracks.some((t) => t.lang === l.code) ? ' (replace)' : ''}</option>
             ))}
           </select>
-          <label className="btn file-btn">
-            {file ? file.name : 'Choose file'}
-            <input key={inputKey} type="file" accept=".vtt,.srt,text/vtt,application/x-subrip" onChange={(e) => setFile(e.target.files?.[0])} />
+          <label className={`btn file-btn${busy ? ' disabled' : ''}`}>
+            {busy ? 'Uploading...' : replacing ? 'Replace captions...' : 'Add captions...'}
+            <input key={inputKey} type="file" accept=".vtt,.srt,text/vtt,application/x-subrip" disabled={busy} onChange={(e) => { const f = e.target.files?.[0]; if (f) void upload(f); }} />
           </label>
-          <button type="button" className="btn btn-primary" onClick={upload} disabled={!file || busy}>
-            {busy ? 'Uploading...' : replacing ? 'Replace captions' : 'Add captions'}
-          </button>
         </div>
       )}
-      <p className="hint">WebVTT (.vtt) or SubRip (.srt), up to 2 MB, one file per language. Files are checked and converted to WebVTT; styling other than bold, italic and underline is removed. Captions are off until the viewer turns them on.</p>
+      <p className="hint">Choose the language, then the file: it is uploaded and saved straight away. WebVTT (.vtt) or SubRip (.srt), up to 2 MB, one file per language. Files are checked and converted to WebVTT; styling other than bold, italic and underline is removed. Captions are off until the viewer turns them on.</p>
     </section>
   );
 }
