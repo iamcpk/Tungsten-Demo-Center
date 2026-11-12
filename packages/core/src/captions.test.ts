@@ -41,7 +41,7 @@ a --> b < c
   assert.match(r.vtt, /00:00:01\.000 --> 00:00:02\.000 align:start position:10%\n/);
   assert.match(r.vtt, /Hello <b>there<\/b> &amp; welcome alert\(1\)/);
   assert.ok(!r.vtt.includes('STYLE') && !r.vtt.includes('NOTE') && !r.vtt.includes('<script') && !r.vtt.includes('<v '));
-  assert.match(r.vtt, /a - > b &lt; c/);
+  assert.match(r.vtt, /a - &gt; b &lt; c/);
 });
 
 test('Windows line endings, BOM and Windows-1252 files', () => {
@@ -64,7 +64,8 @@ test('bad files are refused with a helpful message', () => {
 test('cues are sorted and empty cues skipped', () => {
   const r = parseCaptions('1\n00:00:05,000 --> 00:00:06,000\nB\n\n2\n00:00:01,000 --> 00:00:02,000\nA\n\n3\n00:00:07,000 --> 00:00:08,000\n<i></i>\n');
   assert.equal(r.cues, 2);
-  assert.ok(r.vtt.indexOf('A') < r.vtt.indexOf('B'));
+  const body = r.vtt.slice('WEBVTT'.length);
+  assert.ok(body.indexOf('A') < body.indexOf('B'));
 });
 
 test('language tags', () => {
