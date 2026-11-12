@@ -1,5 +1,5 @@
 # Admin portal image. Build from the repo root:  docker build -f docker/admin.Dockerfile .
-FROM node:24-alpine AS build
+FROM node:25-alpine AS build
 WORKDIR /src
 COPY package.json package-lock.json tsconfig.base.json ./
 COPY packages/core/package.json packages/core/
@@ -12,7 +12,7 @@ COPY packages/core packages/core
 COPY apps/admin apps/admin
 RUN npm run build -w @tdc/core && npm run build -w @tdc/admin
 
-FROM node:24-alpine
+FROM node:25-alpine
 # ffmpeg cuts frames from uploaded videos for "Choose a frame".
 RUN apk add --no-cache ffmpeg
 # Recorded in backups so it's clear which build made them.

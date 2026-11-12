@@ -1,5 +1,5 @@
 # HLS encoder job image (Node + ffmpeg). Build from the repo root:  docker build -f docker/encoder.Dockerfile .
-FROM node:24-alpine AS build
+FROM node:25-alpine AS build
 WORKDIR /src
 COPY package.json package-lock.json tsconfig.base.json ./
 COPY packages/core/package.json packages/core/
@@ -12,7 +12,7 @@ COPY packages/core packages/core
 COPY apps/encoder apps/encoder
 RUN npm run build -w @tdc/core && npm run build -w @tdc/encoder
 
-FROM node:24-alpine
+FROM node:25-alpine
 RUN apk add --no-cache ffmpeg
 ENV NODE_ENV=production
 WORKDIR /app
