@@ -262,3 +262,22 @@ h1 .tag { vertical-align: middle; font-size: 0.75rem; margin-left: 6px; }
 .an-check { display: inline-flex; align-items: center; gap: 6px; font-size: 0.9rem; white-space: nowrap; }
 .an-check input { width: auto; }
 .an-note { margin-top: 14px; max-width: 900px; }
+
+/* ---------- multi-select drop-down ---------- */
+.ms { position: relative; font-weight: 400; }
+.ms-control { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; border: 1.5px solid var(--line); border-radius: 8px; padding: 6px; background: #fff; min-height: 42px; }
+.ms.open .ms-control, .ms-control:focus-within { border-color: var(--blue); }
+.ms-toggle { flex: 1; min-width: 160px; display: flex; justify-content: space-between; align-items: center; border: 0; background: none; font: inherit; cursor: pointer; padding: 4px 6px; text-align: left; }
+.ms-toggle:disabled { cursor: default; }
+.ms-caret { color: var(--gray); }
+.tag-pill-warn { background: #fdf0ef; color: var(--red); }
+.ms-panel { position: absolute; z-index: 20; left: 0; right: 0; top: calc(100% + 4px); background: #fff; border-radius: 10px; box-shadow: var(--shadow), 0 0 0 1px var(--line); padding: 8px; }
+.ms-search { width: 100%; margin-bottom: 6px; }
+.ms-list { list-style: none; margin: 0; padding: 0; max-height: 280px; overflow-y: auto; }
+.ms-opt { display: flex; align-items: center; gap: 10px; padding: 7px 8px; border-radius: 6px; cursor: pointer; color: var(--ink); }
+.ms-opt.active { background: var(--light-blue); }
+.ms-box { width: 18px; height: 18px; flex: none; border: 1.5px solid var(--gray-mid); border-radius: 4px; display: inline-flex; align-items: center; justify-content: center; font-size: 0.75rem; color: #fff; }
+.ms-box.on { background: var(--blue-dark); border-color: var(--blue-dark); }
+.ms-empty { padding: 8px; }
+.ms-foot { display: flex; align-items: center; gap: 8px; justify-content: flex-end; border-top: 1px solid var(--line); margin-top: 6px; padding-top: 8px; }
+.ms-foot .small { margin-right: auto; }

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { api, BL, fmtBytes, fmtDate, isPublished, mediaUrl, STATUS_LABEL, uploadToBlob, type Provider, type Taxonomy, type Video, type VideoStatus } from '../api';
 import { TagInput } from '../components/TagInput';
+import { MultiSelect } from '../components/MultiSelect';
 import { useMe } from '../App';
 
 interface FormState {
@@ -399,7 +400,7 @@ export default function VideoEditor() {
                 ))}
               </div>
             </div>
-            <div className="field"><span>Products</span><TagInput value={f.products} onChange={(v) => set('products', v)} options={tax?.products} placeholder="Add product" allowNew={false} /></div>
+            <div className="field"><span>Products</span><MultiSelect label="Products" value={f.products} onChange={(v) => set('products', v)} options={tax?.products} placeholder="Select one or more products" disabled={readOnly} /></div>
             <div className="field"><span>Categories</span><TagInput value={f.categories} onChange={(v) => set('categories', v)} options={tax?.categories} placeholder="Add category" allowNew={false} /></div>
             <div className="field"><span>Industries</span><TagInput value={f.verticals} onChange={(v) => set('verticals', v)} options={tax?.verticals} placeholder="Add industry" allowNew={false} /></div>
             <div className="row2">
