@@ -1,6 +1,6 @@
 # One-off iVengi importer, run as a manually started Container Apps Job.
 # Build from the repo root:  docker build -f docker/importer.Dockerfile .
-FROM node:24-alpine AS build
+FROM node:25-alpine AS build
 WORKDIR /src
 COPY package.json package-lock.json tsconfig.base.json ./
 COPY packages/core/package.json packages/core/
@@ -13,7 +13,7 @@ COPY packages/core packages/core
 COPY tools/importer tools/importer
 RUN npm run build -w @tdc/core && npm run build -w @tdc/importer
 
-FROM node:24-alpine
+FROM node:25-alpine
 ENV NODE_ENV=production
 WORKDIR /app
 COPY package.json package-lock.json ./
